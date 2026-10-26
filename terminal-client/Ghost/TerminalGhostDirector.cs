@@ -32,6 +32,8 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		internal readonly List<BotRecord> Members = new List<BotRecord>(16);
 		internal bool Dormant;
 		internal bool Queued;
+		internal int CombatSlot = -1;
+		internal TerminalGhostCombat.Fight Fight;
 	}
 
 	private static TerminalGhostDirector _instance;
@@ -43,6 +45,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private readonly List<Player> _humans = new List<Player>(16);
 	private readonly Queue<Squad> _wakeQueue = new Queue<Squad>(128);
 	private readonly List<BotOwner> _retired = new List<BotOwner>(512);
+	private readonly TerminalGhostCombat _combat = new TerminalGhostCombat();
 	private int _cursor;
 	private float _nextScan;
 	private float _nextReport;
@@ -106,6 +109,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		squad = new Squad { Group = group };
 		_byGroup.Add(group, squad);
 		_groups.Add(squad);
+		_combat.Register(squad);
 		return squad;
 	}
 
@@ -122,6 +126,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		squad.Members.Remove(record);
 		if (squad.Members.Count == 0)
 		{
+			_combat.Unregister(squad);
 			_byGroup.Remove(squad.Group);
 			_groups.Remove(squad);
 			squad.Dormant = false;
@@ -212,6 +217,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 					Evaluate(_groups[_cursor++]);
 				}
 			}
+			_combat.Tick(Time.time);
 		}
 		catch (Exception ex)
 		{
@@ -349,7 +355,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				total++;
 				if (record.Dormant) dormant++;
 			}
-			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms");
+			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms");
 		}
 		_sleeps = _wakes = _samples = 0;
 		_sumMs = _maxMs = 0;
@@ -371,6 +377,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 
 	private void Wake(Squad squad)
 	{
+		_combat.Cancel(squad);
 		if (!squad.Dormant) return;
 		long start = _inMeasuredPass ? 0 : Stopwatch.GetTimestamp();
 		squad.Dormant = false;
@@ -391,6 +398,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		_restoring = true;
 		try
 		{
+			_combat.CancelAll();
 			for (int i = 0; i < _groups.Count; i++)
 			{
 				Wake(_groups[i]);
@@ -416,8 +424,23 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		if (_instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record)) _instance.Wake(record.Squad);
 	}
 
+	// Combat alone may restore one member without waking its surviving squad.
+	internal static void RestoreForCombatDeath(BotRecord record)
+	{
+		if (!_instance || !record.Dormant || !record.Bot
+			|| !_instance._bots.TryGetValue(record.Bot, out var current) || current != record)
+			throw new InvalidOperationException("Ghost casualty is no longer owned/dormant");
+		_instance.Restore(record);
+	}
+
+	internal static void WakeSquad(Squad squad)
+	{
+		if (_instance && squad != null) _instance.Wake(squad);
+	}
+
 	internal static void Damage(Player player)
 	{
+		if (TerminalGhostCombatDamage.IsSimulated(player)) return;
 		BotOwner bot = player?.AIData?.BotOwner;
 		if (!_instance || !bot || !_instance._bots.TryGetValue(bot, out var record)) return;
 		record.LastDamageAt = Time.time;

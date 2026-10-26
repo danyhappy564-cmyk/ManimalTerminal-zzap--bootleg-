@@ -283,8 +283,10 @@ internal static class TerminalGhostPatches
 		[HarmonyPostfix]
 		private static void Postfix(ActiveHealthController __instance, float __result)
 		{
-			// Stage 1 never calls ApplyDamage for simulation. Zero/ignored hits do not wake.
-			if (__result > 0f) TerminalGhostDirector.Damage(__instance.Player);
+			// Only this simulation's victim is exempt. Real hits (including nested
+			// damage to another player) still cancel the fight and wake that squad.
+			if (__result > 0f && !TerminalGhostCombatDamage.IsSimulated(__instance.Player))
+				TerminalGhostDirector.Damage(__instance.Player);
 		}
 	}
 
@@ -292,7 +294,13 @@ internal static class TerminalGhostPatches
 	internal static class Patch_Death
 	{
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
-		private static void Prefix(Player __instance) { TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner); }
+		private static void Prefix(Player __instance)
+		{
+			// Combat restored its casualty BEFORE entering the normal Player damage
+			// pipeline. Keep that body visible without waking its remaining squad.
+			if (!TerminalGhostCombatDamage.IsSimulated(__instance))
+				TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner);
+		}
 	}
 
 	[HarmonyPatch(typeof(ShootData), "Shoot")]

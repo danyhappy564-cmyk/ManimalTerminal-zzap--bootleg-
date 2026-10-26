@@ -101,6 +101,8 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<float> GhostWakeDistance;
 	internal static ConfigEntry<bool> GhostBrainThrottle;
 	internal static ConfigEntry<bool> GhostDiagnostics;
+	internal static ConfigEntry<bool> GhostCombat;
+	internal static ConfigEntry<float> GhostCombatRange;
 
 	internal static ConfigEntry<int> MaxAliveScavs;
 
@@ -316,11 +318,13 @@ public class Plugin : BaseUnityPlugin
 	{
 		Log = Logger;
 		HarmonyInstance = new Harmony("com.manimal.terminal");
-		GhostMode = Config.Bind("Terminal", "GhostMode", false, "Pause distant ordinary squads (Terminal only; disabled with any Fika assembly). Experimental, stage 1.");
+		GhostMode = Config.Bind("Terminal", "GhostMode", false, "Pause distant ordinary squads (Terminal only; disabled with any Fika assembly). Experimental Ghost mode.");
 		GhostSleepDistance = Config.Bind("Terminal", "GhostSleepDistance", 250f, new ConfigDescription("All living squad members must be farther than this from every living human (meters).", new AcceptableValueRange<float>(50f, 1500f)));
 		GhostWakeDistance = Config.Bind("Terminal", "GhostWakeDistance", 200f, new ConfigDescription("Immediate squad wake distance (meters); clamped below sleep distance at runtime.", new AcceptableValueRange<float>(10f, 1499f)));
 		GhostBrainThrottle = Config.Bind("Terminal", "GhostBrainThrottle", true, "Stage 1 uses a full brain stop while dormant. OFF wakes Ghost-owned bots and suspends new sleeps for safety.");
-		GhostDiagnostics = Config.Bind("Terminal", "GhostDiagnostics", true, "Log dormant/total bots, squad sleeps/wakes and Ghost average/max milliseconds every 30 seconds.");
+		GhostDiagnostics = Config.Bind("Terminal", "GhostDiagnostics", true, "Log completed/cancelled Ghost fights and dormant/total bots, sleeps/wakes, active fights and average/max milliseconds every 30 seconds.");
+		GhostCombat = Config.Bind("Terminal", "GhostCombat", true, "Simulate fights between hostile Ghost-owned dormant squads. Requires GhostMode; OFF cancels remaining simulated damage immediately on the next Ghost update.");
+		GhostCombatRange = Config.Bind("Terminal", "GhostCombatRange", 60f, new ConfigDescription("Maximum simulated contact distance in meters (nearest living member pair; three clear world rays required).", new AcceptableValueRange<float>(10f, 150f)));
 		TerminalGhostPatches.Initialize();
 		TerminalAILimitFirewall.Install(HarmonyInstance);
 		TerminalSainCompat.Install(HarmonyInstance);
