@@ -19,6 +19,8 @@
 
 ## 변경 이력
 
+- 2026-10-27 — zzap: 유령 모드 4단계로 선택적 SAIN 휴면 봇 업데이트·시야 대상·청각 차단, 기상 시 캐시 정리, F12 GhostSainThrottle(기본 ON)과 30초 sain ms/frame·스킵 진단을 추가했습니다(빌드 확인, 인게임 미검증).
+
 - 2026-10-27 — zzap: 유령 모드 3단계로 모의 전투의 실제 무기·소음기 총성, 가까운 싸움 우선/프레임 재생 제한, 취소 연동과 F12 GhostAudio/GhostAudioRange/GhostAudioMaxFights, 30초 shots 진단을 추가했습니다(빌드 확인, 인게임 미검증).
 
 - 2026-10-27 — zzap: 유령 모드 2단계로 휴면 분대 간 적대·거리·시야 기반 모의 전투와 분산 사망/부상 예약, 기상 시 취소, F12 GhostCombat/GhostCombatRange를 추가했습니다(빌드 확인, 인게임 미검증). ORBIT 원리만 참고하고 코드는 새로 작성했습니다.

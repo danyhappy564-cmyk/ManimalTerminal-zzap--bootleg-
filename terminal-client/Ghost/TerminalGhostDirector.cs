@@ -18,6 +18,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		internal float LastDamageAt = float.NegativeInfinity;
 		internal float BlockUntil;
 		internal bool Dormant;
+		internal bool SainThrottled;
+		internal bool SainWakePending;
+		internal int SainWakeDeadline;
+		internal bool FaultReported;
 		internal EBotState SavedState;
 		internal object SainController;
 		internal AICoreAgent<BotLogicDecision> Agent;
@@ -52,6 +56,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private int _sleeps;
 	private int _wakes;
 	private int _samples;
+	private int _sainWakePending;
 	private double _sumMs;
 	private double _maxMs;
 	private double _pendingHookMs;
@@ -121,6 +126,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		try { Restore(record); }
 		catch (Exception ex) { Plugin.Log.LogWarning("[Ghost] removed bot restore failed: " + ex.Message); }
 		if (record.Agent != null) _agents.Remove(record.Agent);
+		FinishSainWake(bot);
 		_bots.Remove(bot);
 		Squad squad = record.Squad;
 		squad.Members.Remove(record);
@@ -137,10 +143,29 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	{
 		if (!_instance || !bot) return;
 		float lastDamage = float.NegativeInfinity;
-		if (_instance._bots.TryGetValue(bot, out var previous)) lastDamage = previous.LastDamageAt;
+		float blockUntil = 0f;
+		bool faultReported = false, refreshSain = false;
+		if (_instance._bots.TryGetValue(bot, out var previous))
+		{
+			lastDamage = previous.LastDamageAt;
+			blockUntil = previous.BlockUntil;
+			faultReported = previous.FaultReported;
+			refreshSain = previous.SainThrottled || previous.SainWakePending;
+		}
 		_instance.Remove(bot);
 		_instance.Register(bot);
-		if (_instance._bots.TryGetValue(bot, out var current)) current.LastDamageAt = lastDamage;
+		if (_instance._bots.TryGetValue(bot, out var current))
+		{
+			current.LastDamageAt = lastDamage;
+			current.BlockUntil = Mathf.Max(current.BlockUntil, blockUntil);
+			current.FaultReported = faultReported;
+			if (refreshSain && TerminalGhostSain.NeedsWakeRefresh)
+			{
+				current.SainWakePending = true;
+				current.SainWakeDeadline = Time.frameCount + 2;
+				_instance._sainWakePending++;
+			}
+		}
 	}
 
 	internal static void PlacementChanged(BotOwner bot)
@@ -153,6 +178,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 
 	private void Update()
 	{
+		TerminalGhostSain.BeginFrame();
 		long start = Stopwatch.GetTimestamp();
 		_inMeasuredPass = true;
 		try
@@ -161,6 +187,18 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			{
 				ResetForRaid();
 				return;
+			}
+			// Wake cleanup must also finish or fail open after GhostMode/brain throttle
+			// is switched OFF; those switches take the early restore path below.
+			if (_sainWakePending > 0)
+			{
+				foreach (BotRecord record in _bots.Values)
+				{
+					if (!record.SainWakePending) continue;
+					if (!record.Bot || record.Bot.IsDead || record.Bot.HealthController?.IsAlive != true) FinishSainWake(record.Bot);
+					else if (Time.frameCount > record.SainWakeDeadline)
+						Fault(record.Bot, new InvalidOperationException("SAIN wake update did not complete within two frames"));
+				}
 			}
 			if (!Running || !Plugin.GhostBrainThrottle.Value)
 			{
@@ -172,7 +210,9 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			TerminalCoop.CollectHumans(_humans);
 			_retired.Clear();
 			foreach (BotRecord record in _bots.Values)
+			{
 				if (!record.Bot || record.Bot.IsDead || (record.Bot.HealthController != null && !record.Bot.HealthController.IsAlive)) _retired.Add(record.Bot);
+			}
 			for (int i = 0; i < _retired.Count; i++) Remove(_retired[i]);
 			float wake = Mathf.Min(Plugin.GhostWakeDistance.Value, Plugin.GhostSleepDistance.Value - 1f);
 			float wakeSq = wake * wake;
@@ -276,6 +316,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			{
 				record.SavedState = bot.BotState;
 				record.Dormant = true;
+				TerminalGhostSain.DormancyChanged();
 				bot.ShootData?.EndShoot();
 				bot.Sprint(false);
 				bot.Mover.Stop();
@@ -346,7 +387,8 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	{
 		if (Time.unscaledTime < _nextReport) return;
 		_nextReport = Time.unscaledTime + 30f;
-		if (Plugin.GhostDiagnostics.Value && Plugin.GhostMode.Value)
+		TerminalGhostSain.ReadWindow(out double sainMs, out long sainSkipped);
+		if (Plugin.GhostDiagnostics.Value)
 		{
 			int dormant = 0, total = 0;
 			foreach (BotRecord record in _bots.Values)
@@ -355,7 +397,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				total++;
 				if (record.Dormant) dormant++;
 			}
-			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms");
+			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)");
 		}
 		_sleeps = _wakes = _samples = 0;
 		_combat.ResetShots();
@@ -365,6 +407,13 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private void Restore(BotRecord record)
 	{
 		if (!record.Dormant) return;
+		if (record.SainThrottled && TerminalGhostSain.NeedsWakeRefresh && record.Bot && !record.Bot.IsDead
+			&& record.Bot.HealthController != null && record.Bot.HealthController.IsAlive && !record.SainWakePending)
+		{
+			record.SainWakePending = true;
+			record.SainWakeDeadline = Time.frameCount + 2;
+			_sainWakePending++;
+		}
 		// Clear the guard BEFORE restoring health/activation-dependent behavior.
 		record.Dormant = false;
 		try { record.Body.Restore(); }
@@ -418,6 +467,32 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	internal static bool IsDormantAgent(AICoreAgent<BotLogicDecision> agent)
 	{
 		return _instance && agent != null && _instance._agents.TryGetValue(agent, out var record) && record.Dormant;
+	}
+
+	internal static bool IsBrainPausedAgent(AICoreAgent<BotLogicDecision> agent)
+	{
+		return _instance && agent != null && _instance._agents.TryGetValue(agent, out var record) && (record.Dormant || record.SainWakePending);
+	}
+
+	internal static bool HasSainWakePending => _instance && _instance._sainWakePending > 0;
+	internal static bool SainWakePending(BotOwner bot)
+	{
+		return _instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record) && record.SainWakePending;
+	}
+
+	internal static void SuspendSain(BotOwner bot, object activation)
+	{
+		if (!_instance || ReferenceEquals(bot, null) || !_instance._bots.TryGetValue(bot, out var record) || record.SainThrottled) return;
+		TerminalGhostPatches.SuspendSain(record, activation);
+		record.SainThrottled = true;
+	}
+
+	internal static void FinishSainWake(BotOwner bot)
+	{
+		if (!_instance || ReferenceEquals(bot, null) || !_instance._bots.TryGetValue(bot, out var record)) return;
+		if (record.SainWakePending) _instance._sainWakePending--;
+		record.SainWakePending = false;
+		record.SainThrottled = false;
 	}
 
 	internal static void WakeNow(BotOwner bot)
@@ -490,7 +565,13 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	internal static void Fault(BotOwner bot, Exception ex)
 	{
 		WakeNow(bot);
-		if (_instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record)) record.BlockUntil = float.PositiveInfinity;
+		FinishSainWake(bot);
+		if (_instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record))
+		{
+			record.BlockUntil = float.PositiveInfinity;
+			if (record.FaultReported) return;
+			record.FaultReported = true;
+		}
 		Plugin.Log.LogWarning("[Ghost] bot restored and excluded after exception: " + ex.Message);
 	}
 
@@ -504,6 +585,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			_instance = null;
 		}
 		_spawner = null;
+		TerminalGhostSain.ResetForRaid();
 	}
 
 	private void Unlisten()

@@ -173,6 +173,20 @@ internal static class TerminalGhostPatches
 		if (record.SainController != null) _clearEnemy(record.SainController);
 	}
 
+	internal static void SuspendSain(TerminalGhostDirector.BotRecord record, object activation)
+	{
+		if (!_sainSafe || _sainComponent == null) throw new InvalidOperationException("SAIN activation access unavailable");
+		if (activation == null) throw new InvalidOperationException("SAIN activation disappeared while dormant");
+		if (!_sainActive(activation)) return;
+		BotOwner previous = _activationBot;
+		try
+		{
+			_activationBot = record.Bot; // preserve stage-1 Stop protection during SetActive(false)
+			_deactivateSain(activation);
+		}
+		finally { _activationBot = previous; }
+	}
+
 	private static bool Hidden(EnemyInfo enemy)
 	{
 		return TerminalGhostDirector.IsDormant(enemy.Owner) || TerminalGhostDirector.IsDormant(enemy.Person?.AIData?.BotOwner);
@@ -208,7 +222,7 @@ internal static class TerminalGhostPatches
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
 		private static bool Prefix(AICoreAgent<BotLogicDecision> __instance)
 		{
-			return !TerminalGhostDirector.IsDormantAgent(__instance);
+			return !TerminalGhostDirector.IsBrainPausedAgent(__instance);
 		}
 	}
 
@@ -220,7 +234,7 @@ internal static class TerminalGhostPatches
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
 		private static bool Prefix(AICoreAgent<BotLogicDecision> __0, ref bool __result)
 		{
-			if (!TerminalGhostDirector.IsDormantAgent(__0)) return true;
+			if (!TerminalGhostDirector.IsBrainPausedAgent(__0)) return true;
 			__result = false; // skip both BigBrain's body AND the native agent body
 			return false;
 		}
@@ -310,7 +324,8 @@ internal static class TerminalGhostPatches
 		private static bool Prefix(ShootData __instance, ref bool __result)
 		{
 			BotOwner bot = __instance._owner;
-			if (!TerminalGhostDirector.IsDormant(bot) && TerminalGhostDirector.AllowTarget(bot, bot?.Memory?.GoalEnemy?.Person)) return true;
+			if (!TerminalGhostDirector.IsDormant(bot) && !TerminalGhostDirector.SainWakePending(bot)
+				&& TerminalGhostDirector.AllowTarget(bot, bot?.Memory?.GoalEnemy?.Person)) return true;
 			__instance.EndShoot();
 			__result = false;
 			return false;
