@@ -113,6 +113,12 @@ public class TerminalMod(
             return;
         }
 
+        // 0.2.20 (recovered from the release build): a wave whose support rosters
+        // already add up to the parent escort count would spawn those escorts twice
+        var normalized = TerminalWaveRoster.NormalizeDuplicateEscortAmounts(newBase);
+        if (normalized > 0)
+            logger.Info($"[Terminal] normalized duplicate parent escort counts on {normalized} wave(s); support rosters preserved");
+
         ConfigureTicketArmoredCase();
         ConfigureTerminalEntryNoteSpecialSlot();
 

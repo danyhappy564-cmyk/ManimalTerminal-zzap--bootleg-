@@ -1,0 +1,1314 @@
+{
+  "schema": 1,
+  "retailVersion": "1.1.5.47510",
+  "areas": [
+    {
+      "id": "level628:35841",
+      "path": "SOUND/FirefightDirector/FirefightAreas/FirefightArea_01",
+      "fields": {
+        "Radius": 450.0,
+        "LocalDensity": 1.0,
+        "AudioPreset": "sharedassets598.assets:200",
+        "UseSector": 1,
+        "SectorApertureDeg": 130.0,
+        "ForwardOffsetPercentRange": {
+          "x": 0.0,
+          "y": 0.800000011920929
+        }
+      }
+    },
+    {
+      "id": "level628:35894",
+      "path": "SOUND/FirefightDirector/FirefightAreas/FirefightArea_02",
+      "fields": {
+        "Radius": 450.0,
+        "LocalDensity": 1.0,
+        "AudioPreset": "sharedassets598.assets:200",
+        "UseSector": 1,
+        "SectorApertureDeg": 130.0,
+        "ForwardOffsetPercentRange": {
+          "x": 0.0,
+          "y": 0.800000011920929
+        }
+      }
+    },
+    {
+      "id": "level628:35254",
+      "path": "SOUND/FirefightDirector/FirefightAreas/FirefightArea_03",
+      "fields": {
+        "Radius": 450.0,
+        "LocalDensity": 1.0,
+        "AudioPreset": "sharedassets598.assets:200",
+        "UseSector": 1,
+        "SectorApertureDeg": 130.0,
+        "ForwardOffsetPercentRange": {
+          "x": 0.0,
+          "y": 0.800000011920929
+        }
+      }
+    },
+    {
+      "id": "level628:36250",
+      "path": "SOUND/FirefightDirector/FirefightAreas/FirefightArea_04",
+      "fields": {
+        "Radius": 450.0,
+        "LocalDensity": 1.0,
+        "AudioPreset": "sharedassets598.assets:200",
+        "UseSector": 1,
+        "SectorApertureDeg": 130.0,
+        "ForwardOffsetPercentRange": {
+          "x": 0.0,
+          "y": 0.800000011920929
+        }
+      }
+    }
+  ],
+  "presets": {
+    "sharedassets598.assets:200": {
+      "WeaponProfiles": [
+        "sharedassets598.assets:201",
+        "sharedassets598.assets:201"
+      ],
+      "DensityCurve": {
+        "m_Curve": [
+          {
+            "time": 0.0,
+            "value": 0.699999988079071,
+            "inSlope": 0.43382322788238525,
+            "outSlope": 0.43382322788238525,
+            "weightedMode": 0,
+            "inWeight": 0.0,
+            "outWeight": 0.3333333432674408
+          },
+          {
+            "time": 0.35410022735595703,
+            "value": 0.8536168932914734,
+            "inSlope": 0.3302288055419922,
+            "outSlope": 0.3302288055419922,
+            "weightedMode": 0,
+            "inWeight": 0.3333333432674408,
+            "outWeight": 0.3333333432674408
+          },
+          {
+            "time": 1.0,
+            "value": 1.0,
+            "inSlope": 0.10929607599973679,
+            "outSlope": 0.10929607599973679,
+            "weightedMode": 0,
+            "inWeight": 0.12122885137796402,
+            "outWeight": 0.0
+          }
+        ],
+        "m_PreInfinity": 2,
+        "m_PostInfinity": 2,
+        "m_RotationOrder": 4
+      },
+      "DensityPeriodSec": 10.0,
+      "BaseDensity": 0.5,
+      "GrenadeEventsPerShooterPerMinuteAtMaxDensity": 0.15000000596046448,
+      "InitialCooldownRangeSec": {
+        "x": 0.10000000149011612,
+        "y": 0.5
+      },
+      "BaseCooldownAtZeroDensitySec": 1.0,
+      "BaseCooldownAtMaxDensitySec": 0.10000000149011612,
+      "CooldownJitterRangeSec": {
+        "x": 0.0,
+        "y": 0.20000000298023224
+      },
+      "NoProfileRetryCooldownSec": 0.5,
+      "BackoffAtZeroDensitySec": 0.20000000298023224,
+      "BackoffAtMaxDensitySec": 0.6000000238418579,
+      "EnableCallAndResponse": 1,
+      "ResponseProbability": 0.6499999761581421,
+      "ResponseDelayRange": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "ResponseShotsRange": {
+        "x": 1,
+        "y": 5
+      },
+      "ResponseCooldownRange": {
+        "x": 3.0,
+        "y": 7.0
+      }
+    }
+  },
+  "profiles": {
+    "sharedassets598.assets:201": {
+      "AudioPreset": "sharedassets598.assets:199",
+      "BurstSizeRange": {
+        "x": 1.0,
+        "y": 7.0
+      },
+      "VolumeJitter": {
+        "x": 0.6000000238418579,
+        "y": 1.0
+      },
+      "PitchJitter": {
+        "x": 0.9800000190734863,
+        "y": 1.0199999809265137
+      },
+      "SingleShotStartJitterSec": {
+        "x": -0.029999999329447746,
+        "y": 0.05000000074505806
+      },
+      "SingleShotGapRangeSec": {
+        "x": 1.0,
+        "y": 10.0
+      },
+      "BurstSequenceGapRangeSec": {
+        "x": 1.0,
+        "y": 10.0
+      },
+      "AutoFireBias": 0.8999999761581421
+    }
+  },
+  "firearms": {
+    "sharedassets598.assets:199": {
+      "SingleShots": [
+        "sharedassets598.assets:187",
+        "sharedassets38.assets:34",
+        "sharedassets598.assets:193",
+        "sharedassets598.assets:196",
+        "sharedassets404.assets:154"
+      ],
+      "LoopTailSets": [
+        {
+          "Loop": "sharedassets598.assets:183",
+          "Tail": "sharedassets598.assets:184",
+          "RPM": 700.0
+        },
+        {
+          "Loop": "sharedassets598.assets:185",
+          "Tail": "sharedassets598.assets:186",
+          "RPM": 650.0
+        },
+        {
+          "Loop": "sharedassets598.assets:194",
+          "Tail": "sharedassets598.assets:195",
+          "RPM": 650.0
+        },
+        {
+          "Loop": "sharedassets598.assets:197",
+          "Tail": "sharedassets598.assets:198",
+          "RPM": 700.0
+        },
+        {
+          "Loop": "sharedassets598.assets:189",
+          "Tail": "sharedassets598.assets:190",
+          "RPM": 900.0
+        }
+      ],
+      "GrenadeBanks": [
+        "sharedassets397.assets:437",
+        "sharedassets598.assets:191"
+      ]
+    }
+  },
+  "banks": {
+    "sharedassets598.assets:187": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 500.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 3.2751474380493164,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "de357_outdoor_close",
+                "de357_outdoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "de357_outdoor_distant",
+                "de357_outdoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "de357_outdoor_far",
+                "de357_outdoor_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "de357_indoor_close",
+                "de357_indoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "de357_indoor_distant",
+                "de357_indoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "de357_indoor_distant",
+                "de357_indoor_distant"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets38.assets:34": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 1200.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 3.4425623416900635,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "svd_fire_close"
+              ]
+            },
+            {
+              "Clips": [
+                "svd_fire_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "svd_fire_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "svd_fire_indoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "svd_fire_indoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "svd_fire_indoor_distant"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:193": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 900.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 6.362063407897949,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mosin_outdoor_close1"
+              ]
+            },
+            {
+              "Clips": [
+                "mosin_outdoor_distant1"
+              ]
+            },
+            {
+              "Clips": [
+                "mosin_outdoor_far1"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mosin_indoor_close1"
+              ]
+            },
+            {
+              "Clips": [
+                "mosin_indoor_distant1"
+              ]
+            },
+            {
+              "Clips": [
+                "mosin_indoor_distant1"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:196": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 5.5138750076293945,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sks_fire_close"
+              ]
+            },
+            {
+              "Clips": [
+                "sks_fire_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "sks_fire_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sks_fire_indoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "sks_fire_indoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "sks_fire_indoor_distant"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets404.assets:154": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 100.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 0,
+      "SourceType": 4,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 5.780294895172119,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "arena_far_fight2_1",
+                "arena_far_fight2_2",
+                "arena_far_fight2_3",
+                "arena_far_fight2_4",
+                "arena_far_fight2_5",
+                "arena_far_fight2_6",
+                "arena_far_fight2_7",
+                "arena_far_fight2_8"
+              ]
+            },
+            {
+              "Clips": []
+            },
+            {
+              "Clips": []
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": []
+            },
+            {
+              "Clips": []
+            },
+            {
+              "Clips": []
+            }
+          ]
+        }
+      ],
+      "BlendOptions": null
+    },
+    "sharedassets598.assets:183": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 1.3714286088943481,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak12_outdoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_outdoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_outdoor_far_loop"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak12_indoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_indoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_indoor_distant_loop"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:184": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 3.085714340209961,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak12_outdoor_close_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_outdoor_distant_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_outdoor_far_loop_tail"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak12_indoor_close_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_indoor_distant_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak12_indoor_distant_loop_tail"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:185": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 1.4814739227294922,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak74_outdoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_outdoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_outdoor_far_loop"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak74_loop_indoor_close3"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_loop_indoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_loop_indoor_distant"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:186": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 2.386847972869873,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak74_outdoor_close_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_outdoor_distant_loop_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_outdoor_far_loop_tail"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "ak74_loop_indoor_close3_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_loop_indoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "ak74_loop_indoor_distant_tail"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:194": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 1.4769387245178223,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "pkm_outdoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_outdoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_outdoor_far_loop"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "pkm_indoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_indoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_indoor_distant_loop"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:195": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 5.245260715484619,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "pkm_outdoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_outdoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_outdoor_far_tail"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "pkm_indoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_indoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "pkm_indoor_distant_tail"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:197": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 1.3714286088943481,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sr3m_outdoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_outdoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_outdoor_far_loop"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sr3m_indoor_close_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_indoor_distant_loop"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_indoor_distant_loop"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:198": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 600.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 4.800000190734863,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sr3m_outdoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_outdoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_outdoor_far_tail"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "sr3m_indoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_indoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "sr3m_indoor_distant_tail"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:189": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 500.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 1.0666667222976685,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mcx_outdoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_outdoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_outdoor_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mcx_indoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_indoor_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_indoor_distant"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets598.assets:190": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 500.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 0,
+      "HasEnvironment": 1,
+      "SourceType": 0,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 2.766099691390991,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mcx_outdoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_outdoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_outdoor_far_tail"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mcx_indoor_close_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_indoor_distant_tail"
+              ]
+            },
+            {
+              "Clips": [
+                "mcx_indoor_distant_tail"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets29.assets:579"
+    },
+    "sharedassets397.assets:437": {
+      "CustomLength": 0.0,
+      "BaseVolume": 1.0,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.0,
+      "Rolloff": 1000.0,
+      "IgnoreOcclusion": 1,
+      "Physical": 1,
+      "HasEnvironment": 1,
+      "SourceType": 11,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 8.077641487121582,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "gren_expl1_close",
+                "gren_expl2_close",
+                "gren_expl3_close",
+                "gren_expl4_close"
+              ]
+            },
+            {
+              "Clips": [
+                "gren_expl1_distant",
+                "gren_expl2_distant",
+                "gren_expl3_distant",
+                "gren_expl4_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "gren_expl1_far",
+                "gren_expl2_far",
+                "gren_expl3_far",
+                "gren_expl4_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "gren_expl1_indoor_close",
+                "gren_expl2_indoor_close",
+                "gren_expl3_indoor_close",
+                "gren_expl2_indoor_close"
+              ]
+            },
+            {
+              "Clips": [
+                "gren_expl1_indoor_distant",
+                "gren_expl2_indoor_distant",
+                "gren_expl3_indoor_distant",
+                "gren_expl2_indoor_distant"
+              ]
+            },
+            {
+              "Clips": []
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets397.assets:438"
+    },
+    "sharedassets598.assets:191": {
+      "CustomLength": 0.0,
+      "BaseVolume": 0.800000011920929,
+      "BasePitch": 1.0,
+      "DeltaVolume": 0.0,
+      "DeltaPitch": 0.20000000298023224,
+      "Rolloff": 1200.0,
+      "IgnoreOcclusion": 0,
+      "Physical": 1,
+      "HasEnvironment": 1,
+      "SourceType": 11,
+      "AllowLimitedPlay": 0,
+      "LimitIfVisible": 1,
+      "LimitRadius": {
+        "x": 1.0,
+        "y": 3.0
+      },
+      "LimitPercentOfClip": 0.30000001192092896,
+      "_clipLiength": 5.304830074310303,
+      "Environments": [
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mortar_explosion1_close",
+                "mortar_explosion2_close",
+                "mortar_explosion3_close",
+                "mortar_explosion4_close"
+              ]
+            },
+            {
+              "Clips": [
+                "mortar_explosion1_distant",
+                "mortar_explosion2_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "mortar_explosion1_far",
+                "mortar_explosion2_far"
+              ]
+            }
+          ]
+        },
+        {
+          "Clips": [
+            {
+              "Clips": [
+                "mortar_explosion1_close",
+                "mortar_explosion2_close"
+              ]
+            },
+            {
+              "Clips": [
+                "mortar_explosion1_distant",
+                "mortar_explosion2_distant"
+              ]
+            },
+            {
+              "Clips": [
+                "mortar_explosion1_far",
+                "mortar_explosion2_far"
+              ]
+            }
+          ]
+        }
+      ],
+      "BlendOptions": "sharedassets598.assets:192"
+    }
+  },
+  "blends": {
+    "sharedassets29.assets:579": {
+      "FadeType": 3,
+      "Values": [
+        5.0,
+        40.0,
+        60.0,
+        100.0
+      ]
+    },
+    "sharedassets397.assets:438": {
+      "FadeType": 0,
+      "Values": [
+        10.0,
+        30.0,
+        60.0,
+        200.0
+      ]
+    },
+    "sharedassets598.assets:192": {
+      "FadeType": 0,
+      "Values": [
+        10.0,
+        20.0,
+        40.0,
+        300.0
+      ]
+    }
+  },
+  "director": {
+    "_maxConcurrentSequencesTotal": 12,
+    "_firefightAreas": [
+      "level628:35841",
+      "level628:35894",
+      "level628:35254",
+      "level628:36250"
+    ],
+    "_playOnEnable": 0,
+    "_updateIntervalSec": 0.10000000149011612
+  },
+  "startCutscene": "Final_trkv_2"
+}

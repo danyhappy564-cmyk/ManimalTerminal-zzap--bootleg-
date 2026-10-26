@@ -1,265 +1,312 @@
-using System.Collections.Generic;
+using System;
 using System.Diagnostics;
 using System.Text;
+using Comfort.Common;
+using EFT;
 using UnityEngine;
+using UnityEngine.Rendering;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalRenderProfiler
 {
-    // RENDER-SIDE ACCOUNTING, v2 (2026-08-21).
-    //
-    // v1 only timed the FPS camera (onPreCull -> onPostRender on CameraRef) and
-    // read a flat 3-4ms right through the chop windows. that measurement was
-    // structurally blind: anything rendering OUTSIDE that one camera — reflection
-    // probes re-capturing their cubemaps, BSG's DepthPhotograper, shadow-map
-    // extractors, optic cameras — burns GPU without ever entering the window.
-    //
-    // so v2 hooks EVERY camera and reports per-frame: how many cameras rendered,
-    // total submit time across all of them, and which one was worst. plus a
-    // one-shot scene inventory of cameras and reflection probes, because a
-    // ripped map is exactly where a probe lands on Realtime/EveryFrame after its
-    // baked cubemap failed to survive the rip — which would cost GPU on a cycle
-    // AND swing the weapon's specular, matching both symptoms at once.
-    //
-    // NOTE none of this proves GPU execution time — onPostRender fires at command
-    // submission, not GPU completion. it does tell us how much work is being
-    // submitted and by whom, which is the part we're currently blind to.
-    internal static class TerminalRenderProfiler
-    {
-        private static readonly Stopwatch _sw = new Stopwatch();
-        private static bool _subscribed;
+	private static readonly Stopwatch _sw = new Stopwatch();
 
-        // per-frame accumulation
-        private static int _frame = -1;
-        private static int _camsThisFrame;
-        private static double _msThisFrame;
-        private static string _worstNameThisFrame;
-        private static double _worstMsThisFrame;
+	private static bool _subscribed;
 
-        // published (read by PerfWatch)
-        internal static double LastRenderMs;      // FPS cam only — kept for the old log field
-        internal static double AvgRenderMs;
-        internal static double PeakRenderMs;
-        internal static int LastCamCount;         // cameras that rendered last frame
-        internal static int PeakCamCount;
-        internal static double LastTotalMs;       // submit time across ALL cameras
-        internal static double AvgTotalMs;
-        internal static double PeakTotalMs;
-        internal static string WorstCamName = "";
-        internal static double WorstCamMs;
+	private static int _frame = -1;
 
-        internal static void EnsureSubscribed()
-        {
-            if (_subscribed) return;
-            _subscribed = true;
-            Camera.onPreRender += OnPreRender;
-            Camera.onPostRender += OnPostRender;
-            Plugin.Log.LogInfo("[Render] all-camera profiler armed (per-frame camera count + total submit time)");
-        }
+	private static int _camsThisFrame;
 
-        internal static void Disable()
-        {
-            if (!_subscribed) return;
-            Camera.onPreRender -= OnPreRender;
-            Camera.onPostRender -= OnPostRender;
-            _subscribed = false;
-            _sw.Reset();
-            Plugin.Log.LogDebug("[Render] all-camera profiler disarmed off Terminal");
-        }
+	private static double _msThisFrame;
 
-        internal static void ResetForRaid()
-        {
-            LastRenderMs = AvgRenderMs = PeakRenderMs = 0;
-            LastCamCount = PeakCamCount = 0;
-            LastTotalMs = AvgTotalMs = PeakTotalMs = 0;
-            WorstCamName = ""; WorstCamMs = 0;
-            _inventoryDone = false;
-            _inventoryAt = -1f;
-            GpuMs = CpuMs = MainThreadMs = RenderThreadMs = 0;
-            AvgGpuMs = AvgMainMs = AvgRenderThreadMs = 0;
-            PeakGpuMs = 0;
-            _timingWarned = false;
-        }
+	private static string _worstNameThisFrame;
 
-        // ------------------------------------------------- real GPU frame timing
-        //
-        // FrameTimingManager is the one runtime API that reports ACTUAL GPU time
-        // per frame in a release player (Unity's Frame Debugger needs a
-        // development build, which EFT is not). it also splits CPU main thread vs
-        // CPU render thread, which is exactly the three-way test we need:
-        //
-        //   gpu high, main low        -> GPU-bound (probe re-renders, overdraw, shaders)
-        //   renderThread high         -> draw-call/batch submission bound
-        //   main high, gpu low        -> game logic on the main thread
-        //
-        // every measurement so far has been CPU submit time, which can't tell
-        // these apart — that's why "GPU% is up but render submit is 4ms" has been
-        // unresolvable. gpuFrameTime can read 0 if the driver/platform declines to
-        // report it; we log that once rather than silently showing zeros.
-        internal static double GpuMs, CpuMs, MainThreadMs, RenderThreadMs;
-        internal static double AvgGpuMs, AvgMainMs, AvgRenderThreadMs, PeakGpuMs;
-        private static FrameTiming[] _timings = new FrameTiming[1];
-        private static bool _timingWarned;
-        private static int _timingFrames;
+	private static double _worstMsThisFrame;
 
-        internal static void TickFrameTimings()
-        {
-            if (!TerminalGate.On) return;
-            try
-            {
-                FrameTimingManager.CaptureFrameTimings();
-                uint got = FrameTimingManager.GetLatestTimings(1, _timings);
-                if (got == 0) return;
-                var t = _timings[0];
-                CpuMs = t.cpuFrameTime;
-                GpuMs = t.gpuFrameTime;
-                MainThreadMs = t.cpuMainThreadFrameTime;
-                RenderThreadMs = t.cpuRenderThreadFrameTime;
+	internal static double LastRenderMs;
 
-                AvgGpuMs = AvgGpuMs * 0.95 + GpuMs * 0.05;
-                AvgMainMs = AvgMainMs * 0.95 + MainThreadMs * 0.05;
-                AvgRenderThreadMs = AvgRenderThreadMs * 0.95 + RenderThreadMs * 0.05;
-                if (GpuMs > PeakGpuMs) PeakGpuMs = GpuMs;
+	internal static double AvgRenderMs;
 
-                if (!_timingWarned && ++_timingFrames > 300 && AvgGpuMs <= 0.01)
-                {
-                    _timingWarned = true;
-                    Plugin.Log.LogWarning("[Render] FrameTimingManager reports gpuFrameTime=0 — this GPU/driver isn't "
-                        + "returning GPU timestamps, so the gpu= field below is meaningless. main/renderThread are still valid.");
-                }
-            }
-            catch (System.Exception e)
-            {
-                if (!_timingWarned)
-                {
-                    _timingWarned = true;
-                    Plugin.Log.LogWarning($"[Render] FrameTimingManager unavailable: {e.Message}");
-                }
-            }
-        }
+	internal static double PeakRenderMs;
 
-        private static void OnPreRender(Camera cam)
-        {
-            if (!TerminalGate.On || cam == null) return;
-            // new frame — publish what the previous frame accumulated
-            if (Time.frameCount != _frame)
-            {
-                if (_frame >= 0)
-                {
-                    LastCamCount = _camsThisFrame;
-                    LastTotalMs = _msThisFrame;
-                    AvgTotalMs = AvgTotalMs * 0.95 + _msThisFrame * 0.05;
-                    if (_camsThisFrame > PeakCamCount) PeakCamCount = _camsThisFrame;
-                    if (_msThisFrame > PeakTotalMs) PeakTotalMs = _msThisFrame;
-                    if (_worstMsThisFrame > WorstCamMs)
-                    {
-                        WorstCamMs = _worstMsThisFrame;
-                        WorstCamName = _worstNameThisFrame ?? "";
-                    }
-                }
-                _frame = Time.frameCount;
-                _camsThisFrame = 0;
-                _msThisFrame = 0;
-                _worstMsThisFrame = 0;
-                _worstNameThisFrame = null;
-            }
-            // cameras render sequentially on the main thread, so one shared
-            // stopwatch is enough — no nesting to worry about
-            _sw.Restart();
-        }
+	internal static int LastCamCount;
 
-        private static void OnPostRender(Camera cam)
-        {
-            if (!TerminalGate.On || cam == null || !_sw.IsRunning) return;
-            _sw.Stop();
-            double ms = _sw.Elapsed.TotalMilliseconds;
-            _camsThisFrame++;
-            _msThisFrame += ms;
-            if (ms > _worstMsThisFrame) { _worstMsThisFrame = ms; _worstNameThisFrame = cam.name; }
+	internal static int PeakCamCount;
 
-            var fps = TerminalCullingDriver.CameraRef;
-            if (fps != null && cam == fps)
-            {
-                LastRenderMs = ms;
-                AvgRenderMs = AvgRenderMs * 0.95 + ms * 0.05;
-                if (ms > PeakRenderMs) PeakRenderMs = ms;
-            }
-        }
+	internal static double LastTotalMs;
 
-        // ------------------------------------------------------------ inventory
+	internal static double AvgTotalMs;
 
-        private static bool _inventoryDone;
-        private static float _inventoryAt = -1f;
+	internal static double PeakTotalMs;
 
-        // dumped ~20s in, once the scene has settled and probes have had a chance
-        // to do whatever they're going to do
-        internal static void TickInventory()
-        {
-            if (_inventoryDone || !TerminalGate.On) return;
-            // the v1 dump fired during LOAD and inventoried the menu cameras
-            // (MainMenuCamera / Camera_timehascome0) — worthless. wait for a live
-            // MainPlayer so we're looking at the raid scene, THEN start the clock.
-            var gw = Comfort.Common.Singleton<EFT.GameWorld>.Instantiated
-                ? Comfort.Common.Singleton<EFT.GameWorld>.Instance : null;
-            if (gw == null || gw.MainPlayer == null) return;
-            if (_inventoryAt < 0f) { _inventoryAt = Time.realtimeSinceStartup + 20f; return; }
-            if (Time.realtimeSinceStartup < _inventoryAt) return;
-            _inventoryDone = true;
-            try { DumpInventory(); }
-            catch (System.Exception e) { Plugin.Log.LogWarning($"[Render] inventory dump failed: {e.Message}"); }
-        }
+	internal static string WorstCamName = "";
 
-        private static void DumpInventory()
-        {
-            // --- reflection probes: the prime suspect for a cyclic GPU cost that
-            // also swings weapon specular
-            var probes = Object.FindObjectsOfType<ReflectionProbe>();
-            int realtime = 0, everyFrame = 0, viaScripting = 0, onAwake = 0, baked = 0, custom = 0, noTex = 0;
-            var loud = new StringBuilder();
-            int loudShown = 0;
-            foreach (var p in probes)
-            {
-                if (p == null) continue;
-                if (p.mode == UnityEngine.Rendering.ReflectionProbeMode.Realtime) realtime++;
-                else if (p.mode == UnityEngine.Rendering.ReflectionProbeMode.Baked) baked++;
-                else custom++;
+	internal static double WorstCamMs;
 
-                if (p.mode == UnityEngine.Rendering.ReflectionProbeMode.Realtime)
-                {
-                    switch (p.refreshMode)
-                    {
-                        case UnityEngine.Rendering.ReflectionProbeRefreshMode.EveryFrame: everyFrame++; break;
-                        case UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting: viaScripting++; break;
-                        default: onAwake++; break;
-                    }
-                    // an EveryFrame probe is a whole-scene re-render x6 per refresh
-                    if (p.refreshMode == UnityEngine.Rendering.ReflectionProbeRefreshMode.EveryFrame && loudShown < 12)
-                    {
-                        loudShown++;
-                        loud.Append($"\n    '{p.name}' res={p.resolution} timeSlice={p.timeSlicingMode} "
-                            + $"importance={p.importance} box={p.size} pos={p.transform.position} enabled={p.enabled}");
-                    }
-                }
-                if (p.mode == UnityEngine.Rendering.ReflectionProbeMode.Baked && p.bakedTexture == null) noTex++;
-            }
+	internal static double GpuMs;
 
-            Plugin.Log.LogWarning($"[Render][probes] {probes.Length} reflection probe(s): "
-                + $"{realtime} realtime ({everyFrame} EVERY-FRAME, {viaScripting} via-scripting, {onAwake} on-awake), "
-                + $"{baked} baked ({noTex} with NO baked cubemap — rip casualties), {custom} custom. "
-                + $"QualitySettings.realtimeReflectionProbes={QualitySettings.realtimeReflectionProbes} "
-                + $"defaultReflectionMode={RenderSettings.defaultReflectionMode}"
-                + (loud.Length > 0 ? $"\n  EVERY-FRAME probes:{loud}" : ""));
+	internal static double CpuMs;
 
-            // --- cameras: anything beyond the FPS cam that renders every frame
-            var cams = Object.FindObjectsOfType<Camera>();
-            var sb = new StringBuilder();
-            foreach (var c in cams)
-            {
-                if (c == null) continue;
-                sb.Append($"\n    '{c.name}' enabled={c.isActiveAndEnabled} depth={c.depth} "
-                    + $"rt={(c.targetTexture != null ? c.targetTexture.width + "x" + c.targetTexture.height : "screen")} "
-                    + $"mask=0x{c.cullingMask:X} path={c.renderingPath} hdr={c.allowHDR}");
-            }
-            Plugin.Log.LogWarning($"[Render][cams] {cams.Length} camera(s) in scene:{sb}");
-        }
-    }
+	internal static double MainThreadMs;
+
+	internal static double RenderThreadMs;
+
+	internal static double AvgGpuMs;
+
+	internal static double AvgMainMs;
+
+	internal static double AvgRenderThreadMs;
+
+	internal static double PeakGpuMs;
+
+	private static FrameTiming[] _timings = new FrameTiming[1];
+
+	private static bool _timingWarned;
+
+	private static int _timingFrames;
+
+	private static bool _inventoryDone;
+
+	private static float _inventoryAt = -1f;
+
+	internal static void EnsureSubscribed()
+	{
+		if (!_subscribed)
+		{
+			_subscribed = true;
+			Camera.onPreRender = (Camera.CameraCallback)Delegate.Combine(Camera.onPreRender, new Camera.CameraCallback(OnPreRender));
+			Camera.onPostRender = (Camera.CameraCallback)Delegate.Combine(Camera.onPostRender, new Camera.CameraCallback(OnPostRender));
+			Plugin.Log.LogInfo("[Render] all-camera profiler armed (per-frame camera count + total submit time)");
+		}
+	}
+
+	internal static void Disable()
+	{
+		if (_subscribed)
+		{
+			Camera.onPreRender = (Camera.CameraCallback)Delegate.Remove(Camera.onPreRender, new Camera.CameraCallback(OnPreRender));
+			Camera.onPostRender = (Camera.CameraCallback)Delegate.Remove(Camera.onPostRender, new Camera.CameraCallback(OnPostRender));
+			_subscribed = false;
+			_sw.Reset();
+			Plugin.Log.LogDebug("[Render] all-camera profiler disarmed off Terminal");
+		}
+	}
+
+	internal static void ResetForRaid()
+	{
+		LastRenderMs = (AvgRenderMs = (PeakRenderMs = 0.0));
+		LastCamCount = (PeakCamCount = 0);
+		LastTotalMs = (AvgTotalMs = (PeakTotalMs = 0.0));
+		WorstCamName = "";
+		WorstCamMs = 0.0;
+		_inventoryDone = false;
+		_inventoryAt = -1f;
+		GpuMs = (CpuMs = (MainThreadMs = (RenderThreadMs = 0.0)));
+		AvgGpuMs = (AvgMainMs = (AvgRenderThreadMs = 0.0));
+		PeakGpuMs = 0.0;
+		_timingWarned = false;
+	}
+
+	internal static void TickFrameTimings()
+	{
+		if (!TerminalGate.On)
+		{
+			return;
+		}
+		try
+		{
+			FrameTimingManager.CaptureFrameTimings();
+			if (FrameTimingManager.GetLatestTimings(1u, _timings) != 0)
+			{
+				FrameTiming frameTiming = _timings[0];
+				CpuMs = frameTiming.cpuFrameTime;
+				GpuMs = frameTiming.gpuFrameTime;
+				MainThreadMs = frameTiming.cpuMainThreadFrameTime;
+				RenderThreadMs = frameTiming.cpuRenderThreadFrameTime;
+				AvgGpuMs = AvgGpuMs * 0.95 + GpuMs * 0.05;
+				AvgMainMs = AvgMainMs * 0.95 + MainThreadMs * 0.05;
+				AvgRenderThreadMs = AvgRenderThreadMs * 0.95 + RenderThreadMs * 0.05;
+				if (GpuMs > PeakGpuMs)
+				{
+					PeakGpuMs = GpuMs;
+				}
+				if (!_timingWarned && ++_timingFrames > 300 && AvgGpuMs <= 0.01)
+				{
+					_timingWarned = true;
+					Plugin.Log.LogWarning("[Render] FrameTimingManager reports gpuFrameTime=0 — this GPU/driver isn't returning GPU timestamps, so the gpu= field below is meaningless. main/renderThread are still valid.");
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			if (!_timingWarned)
+			{
+				_timingWarned = true;
+				Plugin.Log.LogWarning("[Render] FrameTimingManager unavailable: " + ex.Message);
+			}
+		}
+	}
+
+	private static void OnPreRender(Camera cam)
+	{
+		if (!TerminalGate.On || cam == null)
+		{
+			return;
+		}
+		if (Time.frameCount != _frame)
+		{
+			if (_frame >= 0)
+			{
+				LastCamCount = _camsThisFrame;
+				LastTotalMs = _msThisFrame;
+				AvgTotalMs = AvgTotalMs * 0.95 + _msThisFrame * 0.05;
+				if (_camsThisFrame > PeakCamCount)
+				{
+					PeakCamCount = _camsThisFrame;
+				}
+				if (_msThisFrame > PeakTotalMs)
+				{
+					PeakTotalMs = _msThisFrame;
+				}
+				if (_worstMsThisFrame > WorstCamMs)
+				{
+					WorstCamMs = _worstMsThisFrame;
+					WorstCamName = _worstNameThisFrame ?? "";
+				}
+			}
+			_frame = Time.frameCount;
+			_camsThisFrame = 0;
+			_msThisFrame = 0.0;
+			_worstMsThisFrame = 0.0;
+			_worstNameThisFrame = null;
+		}
+		_sw.Restart();
+	}
+
+	private static void OnPostRender(Camera cam)
+	{
+		if (!TerminalGate.On || cam == null || !_sw.IsRunning)
+		{
+			return;
+		}
+		_sw.Stop();
+		double totalMilliseconds = _sw.Elapsed.TotalMilliseconds;
+		_camsThisFrame++;
+		_msThisFrame += totalMilliseconds;
+		if (totalMilliseconds > _worstMsThisFrame)
+		{
+			_worstMsThisFrame = totalMilliseconds;
+			_worstNameThisFrame = cam.name;
+		}
+		Camera cameraRef = TerminalCullingDriver.CameraRef;
+		if (cameraRef != null && cam == cameraRef)
+		{
+			LastRenderMs = totalMilliseconds;
+			AvgRenderMs = AvgRenderMs * 0.95 + totalMilliseconds * 0.05;
+			if (totalMilliseconds > PeakRenderMs)
+			{
+				PeakRenderMs = totalMilliseconds;
+			}
+		}
+	}
+
+	internal static void TickInventory()
+	{
+		if (_inventoryDone || !TerminalGate.On)
+		{
+			return;
+		}
+		GameWorld gameWorld = (Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null);
+		if (gameWorld == null || gameWorld.MainPlayer == null)
+		{
+			return;
+		}
+		if (_inventoryAt < 0f)
+		{
+			_inventoryAt = Time.realtimeSinceStartup + 20f;
+		}
+		else if (!(Time.realtimeSinceStartup < _inventoryAt))
+		{
+			_inventoryDone = true;
+			try
+			{
+				DumpInventory();
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[Render] inventory dump failed: " + ex.Message);
+			}
+		}
+	}
+
+	private static void DumpInventory()
+	{
+		ReflectionProbe[] array = UnityEngine.Object.FindObjectsOfType<ReflectionProbe>();
+		int num = 0;
+		int num2 = 0;
+		int num3 = 0;
+		int num4 = 0;
+		int num5 = 0;
+		int num6 = 0;
+		int num7 = 0;
+		StringBuilder stringBuilder = new StringBuilder();
+		int num8 = 0;
+		ReflectionProbe[] array2 = array;
+		foreach (ReflectionProbe reflectionProbe in array2)
+		{
+			if (reflectionProbe == null)
+			{
+				continue;
+			}
+			if (reflectionProbe.mode == ReflectionProbeMode.Realtime)
+			{
+				num++;
+			}
+			else if (reflectionProbe.mode == ReflectionProbeMode.Baked)
+			{
+				num5++;
+			}
+			else
+			{
+				num6++;
+			}
+			if (reflectionProbe.mode == ReflectionProbeMode.Realtime)
+			{
+				switch (reflectionProbe.refreshMode)
+				{
+				case ReflectionProbeRefreshMode.EveryFrame:
+					num2++;
+					break;
+				case ReflectionProbeRefreshMode.ViaScripting:
+					num3++;
+					break;
+				default:
+					num4++;
+					break;
+				}
+				if (reflectionProbe.refreshMode == ReflectionProbeRefreshMode.EveryFrame && num8 < 12)
+				{
+					num8++;
+					stringBuilder.Append($"\n    '{reflectionProbe.name}' res={reflectionProbe.resolution} timeSlice={reflectionProbe.timeSlicingMode} " + $"importance={reflectionProbe.importance} box={reflectionProbe.size} pos={reflectionProbe.transform.position} enabled={reflectionProbe.enabled}");
+				}
+			}
+			if (reflectionProbe.mode == ReflectionProbeMode.Baked && reflectionProbe.bakedTexture == null)
+			{
+				num7++;
+			}
+		}
+		Plugin.Log.LogWarning($"[Render][probes] {array.Length} reflection probe(s): " + $"{num} realtime ({num2} EVERY-FRAME, {num3} via-scripting, {num4} on-awake), " + $"{num5} baked ({num7} with NO baked cubemap — rip casualties), {num6} custom. " + $"QualitySettings.realtimeReflectionProbes={QualitySettings.realtimeReflectionProbes} " + $"defaultReflectionMode={RenderSettings.defaultReflectionMode}" + ((stringBuilder.Length > 0) ? $"\n  EVERY-FRAME probes:{stringBuilder}" : ""));
+		Camera[] array3 = UnityEngine.Object.FindObjectsOfType<Camera>();
+		StringBuilder stringBuilder2 = new StringBuilder();
+		Camera[] array4 = array3;
+		foreach (Camera camera in array4)
+		{
+			if (!(camera == null))
+			{
+				stringBuilder2.Append($"\n    '{camera.name}' enabled={camera.isActiveAndEnabled} depth={camera.depth} " + "rt=" + ((camera.targetTexture != null) ? (camera.targetTexture.width + "x" + camera.targetTexture.height) : "screen") + " " + $"mask=0x{camera.cullingMask:X} path={camera.renderingPath} hdr={camera.allowHDR}");
+			}
+		}
+		Plugin.Log.LogWarning($"[Render][cams] {array3.Length} camera(s) in scene:{stringBuilder2}");
+	}
 }

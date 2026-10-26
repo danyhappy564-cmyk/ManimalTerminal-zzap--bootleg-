@@ -106,6 +106,21 @@
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
+    <Reference Include="Comfort.Unity">
+      <HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\Comfort.Unity.dll</HintPath>
+    </Reference>
+    <Reference Include="AnimationSystem.Types">
+      <HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\AnimationSystem.Types.dll</HintPath>
+    </Reference>
+    <!-- 0.2.20 release references ZLinq 1.5.3 (shipped in-game by UnityToolkit) -->
+    <Reference Include="ZLinq">
+      <HintPath>$(SPTPath)\BepInEx\plugins\UnityToolkit\ZLinq.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ManimalTerminalFika" />
   </ItemGroup>
 
   <!--

@@ -1,186 +1,250 @@
+using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal class TerminalTriggerViz : MonoBehaviour
 {
-    // SPAWN-TRIGGER VISUALIZER (2026-08-21, user request while hunting the chop).
-    //
-    // draws every AIPlaceInfo trigger box as a see-through wireframe with a label,
-    // so the spawn choreography is physically visible in-raid. purely visual — we
-    // never touch the colliders, so you still walk straight through them.
-    //
-    // GL line drawing rather than mesh cubes on purpose: 'Hidden/Internal-Colored'
-    // is a built-in shader that always exists in a player build, whereas
-    // Shader.Find on a transparent surface shader is a coin flip in a shipped
-    // game. ZTest=Always so the boxes draw THROUGH geometry — the whole point is
-    // finding a trigger you can't see.
-    internal class TerminalTriggerViz : MonoBehaviour
-    {
-        internal static TerminalTriggerViz Instance;
+	private struct Box
+	{
+		public Transform T;
 
-        // driven straight off the config — flip it live in F12 and the overlay
-        // follows on the next frame; no hotkey, no state to get out of sync
-        private static bool Visible => Plugin.ShowSpawnTriggers.Value && TerminalGate.On;
-        private bool _wasVisible;
+		public Vector3 Center;
 
-        private struct Box
-        {
-            public Transform T;
-            public Vector3 Center, Size;
-            public Color C;
-            public string Label;
-        }
+		public Vector3 Size;
 
-        private readonly List<Box> _boxes = new List<Box>();
-        private static Material _mat;
+		public Color C;
 
-        internal static void Ensure()
-        {
-            if (Instance != null) return;
-            var go = new GameObject("Manimal_TerminalTriggerViz");
-            DontDestroyOnLoad(go);
-            Instance = go.AddComponent<TerminalTriggerViz>();
-        }
+		public string Label;
+	}
 
-        // rebuild on the rising edge — the boxes only exist once AIPlaces has run,
-        // and the user can enable this mid-raid
-        private void Update()
-        {
-            bool v = Visible;
-            if (v == _wasVisible) return;
-            _wasVisible = v;
-            if (v) Rebuild();
-            Plugin.Log.LogWarning($"[TriggerViz] spawn-trigger overlay {(v ? "ON" : "OFF")}"
-                + (v ? $" — {_boxes.Count} trigger box(es)" : ""));
-        }
+	internal static TerminalTriggerViz Instance;
 
-        private static Material Mat()
-        {
-            if (_mat != null) return _mat;
-            var sh = Shader.Find("Hidden/Internal-Colored") ?? Shader.Find("Sprites/Default");
-            if (sh == null) { Plugin.Log.LogWarning("[TriggerViz] no usable shader — overlay unavailable"); return null; }
-            _mat = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
-            try
-            {
-                _mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                _mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                _mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
-                _mat.SetInt("_ZWrite", 0);
-                // draw through walls — you're looking for boxes you can't see
-                _mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-            }
-            catch { }
-            return _mat;
-        }
+	private bool _wasVisible;
 
-        // T4 is the one under investigation, so it gets its own loud colour
-        private static Color ColorFor(string ev)
-        {
-            if (string.IsNullOrEmpty(ev)) return new Color(0.5f, 0.5f, 0.5f, 0.7f);   // no event logic
-            if (ev.Equals("T4", System.StringComparison.OrdinalIgnoreCase)) return new Color(1f, 0.1f, 0.1f, 1f);
-            if (ev.StartsWith("TB", System.StringComparison.OrdinalIgnoreCase)) return new Color(0.2f, 0.9f, 1f, 0.9f);
-            if (ev.StartsWith("T", System.StringComparison.OrdinalIgnoreCase)) return new Color(1f, 0.65f, 0.1f, 0.9f);
-            return new Color(0.6f, 1f, 0.4f, 0.9f);
-        }
+	private readonly List<Box> _boxes = new List<Box>();
 
-        internal void Rebuild()
-        {
-            _boxes.Clear();
-            var holder = GameObject.Find("AIPlaceInfoHolder");
-            if (holder == null) { Plugin.Log.LogWarning("[TriggerViz] AIPlaceInfoHolder not in scene"); return; }
+	private static Material _mat;
 
-            var sb = new System.Text.StringBuilder();
-            foreach (var col in holder.GetComponentsInChildren<BoxCollider>(true))
-            {
-                if (col == null) continue;
-                var logic = col.GetComponent<TerminalTierEventLogic>();
-                string ev = logic != null ? logic.EventName : null;
-                // the logic component often sits on a CHILD of the collider's GO
-                if (ev == null)
-                {
-                    var childLogic = col.GetComponentInChildren<TerminalTierEventLogic>(true);
-                    if (childLogic != null) ev = childLogic.EventName;
-                }
+	private static bool Visible
+	{
+		get
+		{
+			if (Plugin.ShowSpawnTriggers.Value)
+			{
+				return TerminalGate.On;
+			}
+			return false;
+		}
+	}
 
-                _boxes.Add(new Box
-                {
-                    T = col.transform,
-                    Center = col.center,
-                    Size = col.size,
-                    C = ColorFor(ev),
-                    Label = string.IsNullOrEmpty(ev) ? col.gameObject.name : $"{ev}  ({col.gameObject.name})",
-                });
+	internal static void Ensure()
+	{
+		if (!(Instance != null))
+		{
+			GameObject gameObject = new GameObject("Manimal_TerminalTriggerViz");
+			UnityEngine.Object.DontDestroyOnLoad(gameObject);
+			Instance = gameObject.AddComponent<TerminalTriggerViz>();
+		}
+	}
 
-                var world = col.transform.TransformPoint(col.center);
-                var size = Vector3.Scale(col.size, col.transform.lossyScale);
-                sb.Append($"\n    {(string.IsNullOrEmpty(ev) ? "(no event)" : ev),-10} '{col.gameObject.name}' "
-                    + $"center={world} size={size} isTrigger={col.isTrigger} enabled={col.enabled} "
-                    + $"active={col.gameObject.activeInHierarchy}");
-            }
-            Plugin.Log.LogWarning($"[TriggerViz] {_boxes.Count} trigger box(es):{sb}");
-        }
+	private void Update()
+	{
+		bool visible = Visible;
+		if (visible != _wasVisible)
+		{
+			_wasVisible = visible;
+			if (visible)
+			{
+				Rebuild();
+			}
+			Plugin.Log.LogWarning("[TriggerViz] spawn-trigger overlay " + (visible ? "ON" : "OFF") + (visible ? $" — {_boxes.Count} trigger box(es)" : ""));
+		}
+	}
 
-        private void OnRenderObject()
-        {
-            if (!Visible || _boxes.Count == 0) return;
-            // only draw into the player's camera — not reflection/optic passes
-            var fps = TerminalCullingDriver.CameraRef;
-            if (fps != null && Camera.current != fps) return;
+	private static Material Mat()
+	{
+		if (_mat != null)
+		{
+			return _mat;
+		}
+		Shader shader = Shader.Find("Hidden/Internal-Colored") ?? Shader.Find("Sprites/Default");
+		if (shader == null)
+		{
+			Plugin.Log.LogWarning("[TriggerViz] no usable shader — overlay unavailable");
+			return null;
+		}
+		_mat = new Material(shader)
+		{
+			hideFlags = HideFlags.HideAndDontSave
+		};
+		try
+		{
+			_mat.SetInt("_SrcBlend", 5);
+			_mat.SetInt("_DstBlend", 10);
+			_mat.SetInt("_Cull", 0);
+			_mat.SetInt("_ZWrite", 0);
+			_mat.SetInt("_ZTest", 8);
+		}
+		catch
+		{
+		}
+		return _mat;
+	}
 
-            var m = Mat();
-            if (m == null) return;
-            m.SetPass(0);
+	private static Color ColorFor(string ev)
+	{
+		if (string.IsNullOrEmpty(ev))
+		{
+			return new Color(0.5f, 0.5f, 0.5f, 0.7f);
+		}
+		if (ev.Equals("T4", StringComparison.OrdinalIgnoreCase))
+		{
+			return new Color(1f, 0.1f, 0.1f, 1f);
+		}
+		if (ev.StartsWith("TB", StringComparison.OrdinalIgnoreCase))
+		{
+			return new Color(0.2f, 0.9f, 1f, 0.9f);
+		}
+		if (ev.StartsWith("T", StringComparison.OrdinalIgnoreCase))
+		{
+			return new Color(1f, 0.65f, 0.1f, 0.9f);
+		}
+		return new Color(0.6f, 1f, 0.4f, 0.9f);
+	}
 
-            for (int i = 0; i < _boxes.Count; i++)
-            {
-                var b = _boxes[i];
-                if (b.T == null) continue;
-                GL.PushMatrix();
-                GL.MultMatrix(b.T.localToWorldMatrix);   // local space: honours rotation + scale
-                GL.Begin(GL.LINES);
-                GL.Color(b.C);
+	internal void Rebuild()
+	{
+		_boxes.Clear();
+		GameObject gameObject = GameObject.Find("AIPlaceInfoHolder");
+		if (gameObject == null)
+		{
+			Plugin.Log.LogWarning("[TriggerViz] AIPlaceInfoHolder not in scene");
+			return;
+		}
+		StringBuilder stringBuilder = new StringBuilder();
+		BoxCollider[] componentsInChildren = gameObject.GetComponentsInChildren<BoxCollider>(includeInactive: true);
+		foreach (BoxCollider boxCollider in componentsInChildren)
+		{
+			if (boxCollider == null)
+			{
+				continue;
+			}
+			TerminalTierEventLogic component = boxCollider.GetComponent<TerminalTierEventLogic>();
+			string text = ((component != null) ? component.EventName : null);
+			if (text == null)
+			{
+				TerminalTierEventLogic componentInChildren = boxCollider.GetComponentInChildren<TerminalTierEventLogic>(includeInactive: true);
+				if (componentInChildren != null)
+				{
+					text = componentInChildren.EventName;
+				}
+			}
+			_boxes.Add(new Box
+			{
+				T = boxCollider.transform,
+				Center = boxCollider.center,
+				Size = boxCollider.size,
+				C = ColorFor(text),
+				Label = (string.IsNullOrEmpty(text) ? boxCollider.gameObject.name : (text + "  (" + boxCollider.gameObject.name + ")"))
+			});
+			Vector3 vector = boxCollider.transform.TransformPoint(boxCollider.center);
+			Vector3 vector2 = Vector3.Scale(boxCollider.size, boxCollider.transform.lossyScale);
+			stringBuilder.Append(string.Format("\n    {0,-10} '{1}' ", string.IsNullOrEmpty(text) ? "(no event)" : text, boxCollider.gameObject.name) + $"center={vector} size={vector2} isTrigger={boxCollider.isTrigger} enabled={boxCollider.enabled} " + $"active={boxCollider.gameObject.activeInHierarchy}");
+		}
+		Plugin.Log.LogWarning($"[TriggerViz] {_boxes.Count} trigger box(es):{stringBuilder}");
+	}
 
-                Vector3 h = b.Size * 0.5f, c = b.Center;
-                // 8 corners
-                var p000 = c + new Vector3(-h.x, -h.y, -h.z);
-                var p100 = c + new Vector3(h.x, -h.y, -h.z);
-                var p010 = c + new Vector3(-h.x, h.y, -h.z);
-                var p110 = c + new Vector3(h.x, h.y, -h.z);
-                var p001 = c + new Vector3(-h.x, -h.y, h.z);
-                var p101 = c + new Vector3(h.x, -h.y, h.z);
-                var p011 = c + new Vector3(-h.x, h.y, h.z);
-                var p111 = c + new Vector3(h.x, h.y, h.z);
+	private void OnRenderObject()
+	{
+		if (!Visible || _boxes.Count == 0)
+		{
+			return;
+		}
+		Camera cameraRef = TerminalCullingDriver.CameraRef;
+		if (cameraRef != null && Camera.current != cameraRef)
+		{
+			return;
+		}
+		Material material = Mat();
+		if (material == null)
+		{
+			return;
+		}
+		material.SetPass(0);
+		for (int i = 0; i < _boxes.Count; i++)
+		{
+			Box box = _boxes[i];
+			if (!(box.T == null))
+			{
+				GL.PushMatrix();
+				GL.MultMatrix(box.T.localToWorldMatrix);
+				GL.Begin(1);
+				GL.Color(box.C);
+				Vector3 vector = box.Size * 0.5f;
+				Vector3 center = box.Center;
+				Vector3 vector2 = center + new Vector3(0f - vector.x, 0f - vector.y, 0f - vector.z);
+				Vector3 vector3 = center + new Vector3(vector.x, 0f - vector.y, 0f - vector.z);
+				Vector3 vector4 = center + new Vector3(0f - vector.x, vector.y, 0f - vector.z);
+				Vector3 vector5 = center + new Vector3(vector.x, vector.y, 0f - vector.z);
+				Vector3 vector6 = center + new Vector3(0f - vector.x, 0f - vector.y, vector.z);
+				Vector3 vector7 = center + new Vector3(vector.x, 0f - vector.y, vector.z);
+				Vector3 vector8 = center + new Vector3(0f - vector.x, vector.y, vector.z);
+				Vector3 vector9 = center + new Vector3(vector.x, vector.y, vector.z);
+				Line(vector2, vector3);
+				Line(vector3, vector7);
+				Line(vector7, vector6);
+				Line(vector6, vector2);
+				Line(vector4, vector5);
+				Line(vector5, vector9);
+				Line(vector9, vector8);
+				Line(vector8, vector4);
+				Line(vector2, vector4);
+				Line(vector3, vector5);
+				Line(vector7, vector9);
+				Line(vector6, vector8);
+				GL.End();
+				GL.PopMatrix();
+			}
+		}
+		static void Line(Vector3 a, Vector3 bb)
+		{
+			GL.Vertex(a);
+			GL.Vertex(bb);
+		}
+	}
 
-                void Line(Vector3 a, Vector3 bb) { GL.Vertex(a); GL.Vertex(bb); }
-                // bottom, top, verticals
-                Line(p000, p100); Line(p100, p101); Line(p101, p001); Line(p001, p000);
-                Line(p010, p110); Line(p110, p111); Line(p111, p011); Line(p011, p010);
-                Line(p000, p010); Line(p100, p110); Line(p101, p111); Line(p001, p011);
-
-                GL.End();
-                GL.PopMatrix();
-            }
-        }
-
-        private void OnGUI()
-        {
-            if (!Visible || _boxes.Count == 0) return;
-            var cam = TerminalCullingDriver.CameraRef != null ? TerminalCullingDriver.CameraRef : Camera.main;
-            if (cam == null) return;
-
-            var style = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            for (int i = 0; i < _boxes.Count; i++)
-            {
-                var b = _boxes[i];
-                if (b.T == null) continue;
-                var world = b.T.TransformPoint(b.Center);
-                var sp = cam.WorldToScreenPoint(world);
-                if (sp.z <= 0f) continue;                      // behind the camera
-                if (sp.z > 250f) continue;                     // too far to be useful
-                style.normal.textColor = b.C;
-                var r = new Rect(sp.x - 90f, Screen.height - sp.y - 9f, 180f, 18f);
-                GUI.Label(r, $"{b.Label}  [{sp.z:F0}m]", style);
-            }
-        }
-    }
+	private void OnGUI()
+	{
+		if (!Visible || _boxes.Count == 0)
+		{
+			return;
+		}
+		Camera camera = ((TerminalCullingDriver.CameraRef != null) ? TerminalCullingDriver.CameraRef : Camera.main);
+		if (camera == null)
+		{
+			return;
+		}
+		GUIStyle gUIStyle = new GUIStyle(GUI.skin.label)
+		{
+			fontSize = 13,
+			fontStyle = FontStyle.Bold
+		};
+		for (int i = 0; i < _boxes.Count; i++)
+		{
+			Box box = _boxes[i];
+			if (!(box.T == null))
+			{
+				Vector3 position = box.T.TransformPoint(box.Center);
+				Vector3 vector = camera.WorldToScreenPoint(position);
+				if (!(vector.z <= 0f) && !(vector.z > 250f))
+				{
+					gUIStyle.normal.textColor = box.C;
+					GUI.Label(new Rect(vector.x - 90f, (float)Screen.height - vector.y - 9f, 180f, 18f), $"{box.Label}  [{vector.z:F0}m]", gUIStyle);
+				}
+			}
+		}
+	}
 }

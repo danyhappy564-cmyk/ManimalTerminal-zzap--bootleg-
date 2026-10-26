@@ -1,595 +1,656 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
+using System.IO;
+using System.Threading.Tasks;
 using Comfort.Common;
+using Diz.LanguageExtensions;
 using EFT;
+using EFT.GameTriggers;
+using EFT.Interactive;
 using EFT.InventoryLogic;
-using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalGatesExplosion
 {
-    // THE GATES_EXPLOSION RESTORE (decoded 2026-08-17, playbook 'GATES_EXPLOSION
-    // DECODED'): retail's gate is a data-authored TRIGGER NETWORK. the engine
-    // (EFT.GameTriggers.TriggersEmitter emitter, created offline by ClientLocalGameWorld) and most
-    // handler classes are ALIVE in 4.0 — we resurrect those from the sidecar
-    // (terminal_gates.json, full retail values) and re-implement only the
-    // 1.0-only INTERACTION layer as action-menu sessions that EMIT triggers
-    // into the native graph:
-    //   SwitchBoard 'Open'  -> hold -> gates_opened_solo_*  (ELITE STRENGTH 51
-    //                          required — the retail solo requirement, user-known;
-    //                          the duo path is fika-era work)
-    //   Switch_bomb 'Plant' -> hold + SZ-1 consume -> place_bomb_*
-    // then retail takes over: charge prop shows, switches retire, HandlerDelay
-    // runs the 10s fuse, HandlerExplosion deals the REAL blast (frag settings,
-    // Effects 'Fire'), HandlerAnimator plays the gate. both SZ-1 tpls accepted
-    // (BSG shipped one per map; either works, same as icebreaker's door).
-    internal static class TerminalGatesExplosion
-    {
-        internal const string Suffix = "3037225082";
-        internal const string PlaceTrigger = "place_bomb_" + Suffix;
-        internal const string ExplosionTrigger = "bomb_explosion_" + Suffix;
-        internal const string SoloOpenTrigger = "gates_opened_solo_" + Suffix;
-        internal const float PlantSeconds = 5f;
-        internal const float OpenSeconds = 5f;
+	internal const string Suffix = "3037225082";
 
-        internal static readonly string[] ChargeTpls =
-        {
-            "69a0174087a75d2cbd0842e8",
-            "6819f8df28294ec0730db6b4",
-        };
+	internal const string PlaceTrigger = "place_bomb_3037225082";
 
-        internal static bool Planted;
-        internal static bool Opened;
-        internal static bool _boomSeen;
+	internal const string ExplosionTrigger = "bomb_explosion_3037225082";
 
-        private static bool _staged;
-        internal static bool Ready => _staged;
-        private static Transform _root;
+	internal const string SoloOpenTrigger = "gates_opened_solo_3037225082";
 
-        // native 4.0 classes resurrected verbatim from the sidecar. NOT in the set,
-        // deliberately: HandlerInteractable (its job is binding vanilla Switch use to
-        // triggers — our action patch owns that layer, and both would double-fire),
-        // TriggersPrefab (_processed=1: ids were suffix-baked at authoring),
-        // AnimatorSync/GameObjectStateSync (MP shims), and every 1.0-only class.
-        // HandlerDelay is deliberately OUT: SPT 4.0 ships it gutted (wait with no
-        // emit) — authored delays run through TerminalRigFill.StageDelayShims
-        private static readonly HashSet<string> NativeSet = new HashSet<string>
-        {
-            "HandlerAnimator", "HandlerExplosion",
-            "HandlerGameObjectState", "HandlerGOState",
-        };
+	internal const string DuoWaitRegisterTrigger = "wait_open_gates_duo_3037225082";
 
-        internal static void ResetForRaid()
-        {
-            _staged = false;
-            _root = null;
-            Planted = false;
-            Opened = false;
-            _boomSeen = false;
-        }
+	internal const string DuoWaitCancelTrigger = "dropped_wait_open_gates_duo_3037225082";
 
-        internal static void TryStage()
-        {
-            if (_staged || !Plugin.GatesExplosion.Value) return;
-            if (!TerminalGate.On) return;
-            // handlers Subscribe via EFT.GameTriggers.TriggersEmitter.Instance in their Start — stage only
-            // once the emitter exists or every handler dies on a silent NRE
-            var gw = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
-            if (gw == null || gw.TriggersEmitter == null) return;
+	internal const string DuoReadyTrigger = "start_open_gates_duo_3037225082";
 
-            var root = FindRoot();
-            if (!root) return; // scenes not up yet
-            JObject sc;
-            try
-            {
-                var path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "plugin-data", "terminal_gates.json");
-                if (!System.IO.File.Exists(path))
-                {
-                    Plugin.Log.LogWarning("[Gates] terminal_gates.json missing — gate stays inert");
-                    _staged = true;
-                    return;
-                }
-                sc = JObject.Parse(System.IO.File.ReadAllText(path));
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Gates] sidecar parse failed: {e.Message}");
-                _staged = true;
-                return;
-            }
+	internal const string DuoOpenRegisterTrigger = "opened_gates_duo_3037225082";
 
-            try
-            {
-                _root = root;
-                var index = new Dictionary<string, Transform>();
-                TerminalRigFill.IndexTree(root, "Gates_explosion", index);
-                TerminalRigFill.StageRows(sc["rows"] as JArray, NativeSet, index, "Gates");
-                TerminalRigFill.StageDelayShims(sc["rows"] as JArray, "Gates");
+	internal const string DuoOpenCancelTrigger = "dropped_opening_gates_duo_3037225082";
 
-                // the charge prop must START hidden no matter how the scene ships
-                // (user-authored intent: invisible until planted, gone after the
-                // blast — the resurrected HandlerGameObjectState pair owns the
-                // transitions, this owns the initial state)
-                if (index.TryGetValue("Gates_explosion/Triggers/ExpoldeTriggers/item_spec_sz_1", out var prop))
-                    prop.gameObject.SetActive(false);
+	internal const string DuoFinalTrigger = "gates_opened_duo_confirmed_3037225082";
 
-                // interaction surfaces must exist for the prompt raycast — the old
-                // bundle ships them WTT-stub-alive; warn loudly if not
-                foreach (var swPath in new[]
-                {
-                    "Gates_explosion/Triggers/ExpoldeTriggers/Switch_bomb",
-                    "Gates_explosion/Triggers/OpeningTriggers/Switch/SwitchBoard",
-                })
-                {
-                    if (!index.TryGetValue(swPath, out var swT))
-                    {
-                        Plugin.Log.LogWarning($"[Gates] '{swPath}' GO not found — its prompt cannot appear");
-                        continue;
-                    }
-                    // the switch GO (and its parents inside the rig) may ship inactive
-                    for (var up = swT; up != null && up != root.parent; up = up.parent)
-                        if (!up.gameObject.activeSelf) up.gameObject.SetActive(true);
-                    var sw = swT.GetComponent<EFT.Interactive.Switch>();
-                    if (!sw) Plugin.Log.LogWarning($"[Gates] no Switch component on '{swPath}' — prompt dead (bundle husk?)");
-                    else sw.enabled = true;
-                }
+	internal const float PlantSeconds = 5f;
 
-                // belt-and-braces VFX: retail wires the C4_Explosion rig through its
-                // own graph, but if that authoring rode a class we skipped, this
-                // listener guarantees the show (idempotent — Play on a playing
-                // system is skipped)
-                try
-                {
-                    EFT.GameTriggers.TriggersEmitter.Instance.Subscribe(ExplosionTrigger, new Action(OnExplosionVfx));
-                    // FUSE WATCHDOG (raid report 2026-08-18: plant worked, timer ran,
-                    // no boom — the resurrected HandlerDelay never fired). track the
-                    // native explosion, and if 10.5s pass after the plant with no boom
-                    // seen, emit it ourselves — the rest of the native graph (blast,
-                    // anim, prop hide) hangs off the trigger either way.
-                    EFT.GameTriggers.TriggersEmitter.Instance.Subscribe(ExplosionTrigger, new Action(() => _boomSeen = true));
-                    EFT.GameTriggers.TriggersEmitter.Instance.Subscribe(PlaceTrigger, new Action(() =>
-                    {
-                        var host = new GameObject("Terminal_GateFuseWatchdog");
-                        host.AddComponent<FuseWatchdog>();
-                    }));
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"[Gates] vfx listener subscribe failed: {e.Message}"); }
+	internal const float OpenSeconds = 5f;
 
-                _staged = true;
-                // 3s later (handler Starts run a frame after AddComponent) prove or
-                // disprove the native subscriptions — 2026-08-18 raid: fuse silent
-                TerminalRigFill.ScheduleSubscriberDump("Gates", PlaceTrigger, ExplosionTrigger, SoloOpenTrigger);
-                Plugin.Log.LogInfo("[Gates] GATES_EXPLOSION RESTORED — retail fuse/blast/anim armed, interaction layer ours");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Gates] staging failed: {e}");
-                _staged = true;
-            }
-        }
+	internal const float DuoWaitSeconds = 100f;
 
-        private static void OnExplosionVfx()
-        {
-            if (TerminalCoop.Replaying) return;
-            try
-            {
-                if (!_root) return;
-                var at = _root.position;
-                var vfx = TerminalRigFill.FindChildNamed(_root, "C4_Explosion");
-                if (vfx != null)
-                {
-                    at = vfx.position;
-                    if (!vfx.gameObject.activeSelf) vfx.gameObject.SetActive(true);
-                    foreach (var ps in vfx.GetComponentsInChildren<ParticleSystem>(true))
-                        if (!ps.isPlaying) ps.Play();
-                }
-                // authored boom (level629 sound row: bomb_explosion -> c6_detonate);
-                // icebreaker chain-door pair only as fallback until the fx bundle rebuild
-                var boom = FindClip("amb_terminal_interactive_c6_detonate");
-                if (boom != null) PlayAt(boom, at, 120f);
-                else
-                {
-                    PlayAt(FindClip("IB_chain_door_explosion"), at, 120f);
-                    PlayAt(FindClip("IB_chain_door_explosion_reaction"), at, 60f, 1f);
-                }
-                Plugin.Log.LogInfo($"[Gates] C4_Explosion VFX + boom foley fired ('{(boom != null ? boom.name : "IB fallback pair")}')");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Gates] vfx failed: {e.Message}"); }
-        }
+	internal const float DuoRangeMeters = 5f;
 
-        private static Transform FindRoot() => TerminalRigFill.FindRootNamed("Gates_explosion");
+	internal static readonly string[] ChargeTpls = new string[2] { "69a0174087a75d2cbd0842e8", "6819f8df28294ec0730db6b4" };
 
-        // -------------------------------------------------------------- triggers
-        internal static void Emit(string trigger)
-        {
-            try
-            {
-                TerminalWorldDiff.RecordEvent("map trigger", trigger);
-                var player = Singleton<GameWorld>.Instance?.MainPlayer;
-                EFT.GameTriggers.TriggersEmitter.Instance.Emit(trigger, player != null ? player.ProfileId : "");
-                Plugin.Log.LogInfo($"[Gates] emitted '{trigger}'");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Gates] emit '{trigger}' failed: {e}"); }
-        }
+	internal static bool Planted;
 
-        // Called only after the owner receives the host's exclusive plant grant.
-        // Completion means the native transaction succeeded, not merely validation.
-        internal static async System.Threading.Tasks.Task<bool> ConsumeChargeCoop(Player player)
-        {
-            var item = FindCharge(player);
-            if (item == null) return false;
-            if (IsCharge(player.HandsController?.Item))
-            {
-                var done = new System.Threading.Tasks.TaskCompletionSource<bool>();
-                player.SetEmptyHands(new Callback<EFT.IEmptyHandsController>(r => done.TrySetResult(true)));
-                if (await System.Threading.Tasks.Task.WhenAny(done.Task, System.Threading.Tasks.Task.Delay(30000)) != done.Task)
-                    return false;
-                if (IsCharge(player.HandsController?.Item)) return false;
-            }
-            var unbind = player.InventoryController.UnbindItemDirect(item, true);
-            if (!unbind.Failed)
-            {
-                var result = await player.InventoryController.TryRunNetworkTransaction(unbind, null);
-                if (result == null || result.Failed) return false;
-            }
-            var op = EFT.InventoryLogic.ItemManipulator.Remove(item, player.InventoryController, true);
-            if (op.Failed) return false;
-            var removed = await player.InventoryController.TryRunNetworkTransaction(op, null);
-            return removed != null && !removed.Failed;
-        }
+	internal static bool Opened;
 
-        // ---------------------------------------------------------------- charge
-        internal static bool IsCharge(Item it)
-        {
-            if (it == null) return false;
-            foreach (var t in ChargeTpls) if (it.TemplateId == t) return true;
-            return false;
-        }
+	internal static bool _boomSeen;
 
-        internal static Item FindCharge(Player player)
-        {
-            if (player?.Profile?.Inventory == null) return null;
-            foreach (var it in player.Profile.Inventory.AllRealPlayerItems)
-                if (IsCharge(it)) return it;
-            return null;
-        }
+	private static bool _staged;
 
-        // icebreaker-hardened consume, ported verbatim (unbind quickbinds first;
-        // template-matched in-hands check; swap-then-remove; simulate-validate then
-        // one network transaction — the exact sequence that survived the ghost-hands
-        // and flashing-item eras)
-        private static void DispatchRemove(Player player, Item item)
-        {
-            try
-            {
-                var unbind = player.InventoryController.UnbindItemDirect(item, true);
-                if (!unbind.Failed)
-                {
-                    player.InventoryController.TryRunNetworkTransaction(unbind, r =>
-                    { if (!r.Succeed) Plugin.Log.LogWarning($"[Gates] charge unbind failed post-validation: {r.Error}"); });
-                }
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Gates] unbind attempt threw (continuing): {e.Message}"); }
+	private static Transform _root;
 
-            var op = EFT.InventoryLogic.ItemManipulator.Remove(item, player.InventoryController, true);
-            if (op.Failed)
-            {
-                Plugin.Log.LogWarning($"[Gates] charge remove validation failed: {op.Error}");
-                return;
-            }
-            player.InventoryController.TryRunNetworkTransaction(op, r =>
-            { if (!r.Succeed) Plugin.Log.LogWarning($"[Gates] charge remove failed post-validation: {r.Error}"); });
-            Plugin.Log.LogInfo($"[Gates] consumed charge '{item.Name.Localized()}'");
-        }
+	private static Transform _soloOpeningBranch;
 
-        internal static bool ConsumeCharge(Player player)
-        {
-            var item = FindCharge(player);
-            if (item == null) return false;
-            var handsItem = player.HandsController != null ? player.HandsController.Item : null;
-            bool inHands = handsItem != null
-                && (ReferenceEquals(handsItem, item) || handsItem.Id == item.Id || IsCharge(handsItem));
-            if (!inHands)
-            {
-                DispatchRemove(player, item);
-                return true;
-            }
-            Plugin.Log.LogInfo("[Gates] charge IN HANDS — swapping to a weapon before consuming");
-            player.SetFirstAvailableItem(new Callback<EFT.IHandsController>(r =>
-            {
-                try
-                {
-                    if (player.HandsController != null && IsCharge(player.HandsController.Item))
-                    {
-                        Plugin.Log.LogWarning("[Gates] hands still hold a charge after swap — NOT consumed");
-                        return;
-                    }
-                    DispatchRemove(player, item);
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"[Gates] post-swap consume failed: {e.Message}"); }
-            }));
-            return true;
-        }
+	private static GateHoldSession _duoWaitSession;
 
-        // ----------------------------------------------------------------- foley
-        // the plant/timer/boom clips are retail TERMINAL sounds that only survived in
-        // icebreaker's bundle — extracted from there and shipped in terminal_fx.bundle
-        internal static AudioClip FindClip(string name) => TerminalFxBundle.FindClip(name);
+	private static GateHoldSession _duoOpenSession;
 
-        internal static void PlayAt(AudioClip clip, Vector3 pos, float maxDist, float delay = 0f)
-        {
-            if (clip == null) return;
-            var go = new GameObject("Terminal_GatesSnd");
-            go.transform.position = pos;
-            var src = go.AddComponent<AudioSource>();
-            src.clip = clip;
-            src.spatialBlend = 1f;
-            src.maxDistance = maxDist;
-            src.rolloffMode = AudioRolloffMode.Linear;
-            TerminalAudioRouting.Route(src, effects: true);
-            if (delay > 0f) src.PlayDelayed(delay); else src.Play();
-            UnityEngine.Object.Destroy(go, clip.length + delay + 0.5f);
-        }
+	private static GamePlayerOwner _duoOwner;
 
-        // flat 2D one-shot — for broadcast moments that must read regardless of
-        // player position (loudspeaker lines)
-        internal static void PlayFlat(AudioClip clip, float volume)
-        {
-            if (clip == null) return;
-            var go = new GameObject("Terminal_FlatSnd");
-            var src = go.AddComponent<AudioSource>();
-            src.clip = clip;
-            src.spatialBlend = 0f;
-            src.volume = volume;
-            TerminalAudioRouting.Route(src, effects: true);
-            src.Play();
-            UnityEngine.Object.Destroy(go, clip.length + 0.5f);
-        }
+	private static Transform _duoAnchor;
 
-        internal static Vector3 RigPos()
-        {
-            return _root ? _root.position : Vector3.zero;
-        }
-    }
+	private static bool _duoOpeningBranchSuppressed;
 
-    // watches the native 10s fuse after a plant; emits the boom itself if the
-    // resurrected HandlerDelay never delivers (the trigger drives the whole rest
-    // of the graph, so a watchdog boom is indistinguishable from a native one)
-    internal class FuseWatchdog : MonoBehaviour
-    {
-        private float _armed;
+	private static readonly HashSet<string> NativeSet = new HashSet<string> { "HandlerAnimator", "HandlerExplosion", "HandlerGameObjectState", "HandlerGOState" };
 
-        private void Start() => _armed = Time.time;
+	internal static bool Ready => _staged;
 
-        private void Update()
-        {
-            if (TerminalCoop.Active && !TerminalCoop.Authority) { Destroy(gameObject); return; }
-            if (TerminalGatesExplosion._boomSeen) { Destroy(gameObject); return; }
-            if (Time.time - _armed < 10.5f) return;
-            Plugin.Log.LogWarning("[Gates] native fuse silent 10.5s after the plant — watchdog detonating");
-            TerminalGatesExplosion.Emit(TerminalGatesExplosion.ExplosionTrigger);
-            Destroy(gameObject);
-        }
-    }
+	internal static Transform OpeningAnchor
+	{
+		get
+		{
+			if (!_root)
+			{
+				_root = FindRoot();
+			}
+			if (!_root)
+			{
+				return null;
+			}
+			return TerminalRigFill.FindChildNamed(_root, "SwitchBoard");
+		}
+	}
 
-    // hold-to-interact session — the icebreaker PlantSession pattern generalized:
-    // objectives-panel countdown, firearms locked, release/Escape/walk-away cancels
-    internal class GateHoldSession : MonoBehaviour
-    {
-        public GamePlayerOwner Owner;
-        public Transform Anchor;
-        public float Seconds = 5f;
-        public string PanelText = "Planting charge {0:F1}";
-        public string FoleyClip;
-        public Action OnSuccess;
-        public Action OnCancel;
+	internal static bool DuoSessionActive
+	{
+		get
+		{
+			if (!(_duoWaitSession != null) && !(_duoOpenSession != null))
+			{
+				return _duoOpeningBranchSuppressed;
+			}
+			return true;
+		}
+	}
 
-        private float _start;
-        private bool _started, _ending, _handsLocked, _panelShown;
-        private AudioSource _snd;
+	internal static bool SoloOpeningBranchActive
+	{
+		get
+		{
+			if (_duoOpeningBranchSuppressed)
+			{
+				return false;
+			}
+			if (!_soloOpeningBranch)
+			{
+				if (!_root)
+				{
+					_root = FindRoot();
+				}
+				if ((bool)_root)
+				{
+					_soloOpeningBranch = TerminalRigFill.FindChildNamed(_root, "SoloOpeningTrigger");
+				}
+			}
+			if ((bool)_soloOpeningBranch)
+			{
+				if (_soloOpeningBranch.gameObject.activeSelf)
+				{
+					return _soloOpeningBranch.gameObject.activeInHierarchy;
+				}
+				return false;
+			}
+			return true;
+		}
+	}
 
-        private void Update()
-        {
-            try
-            {
-                if (_ending) return;
-                var player = Singleton<GameWorld>.Instance?.MainPlayer;
-                if (player == null || Anchor == null) { End(false); return; }
+	internal static void ResetForRaid()
+	{
+		CancelDuoHolds();
+		_staged = false;
+		_root = null;
+		_soloOpeningBranch = null;
+		Planted = false;
+		Opened = false;
+		_boomSeen = false;
+	}
 
-                if (!_started)
-                {
-                    _started = true;
-                    _start = Time.time;
-                    if (Owner != null)
-                    {
-                        Owner.ShowObjectivesPanel(PanelText, Seconds);
-                        _panelShown = true;
-                    }
-                    var mc = player.MovementContext;
-                    if (mc != null) { mc.BlockFirearms = true; _handsLocked = true; TerminalHoldLock.Acquire(); }
-                    transform.position = Anchor.position;
-                    var clip = string.IsNullOrEmpty(FoleyClip) ? null : TerminalGatesExplosion.FindClip(FoleyClip);
-                    if (clip != null)
-                    {
-                        _snd = gameObject.AddComponent<AudioSource>();
-                        _snd.clip = clip;
-                        _snd.spatialBlend = 1f;
-                        _snd.maxDistance = 25f;
-                        _snd.rolloffMode = AudioRolloffMode.Linear;
-                        TerminalAudioRouting.Route(_snd, effects: true);
-                        _snd.Play();
-                    }
-                }
+	internal static bool IsNearOpening(Player player)
+	{
+		Transform openingAnchor = OpeningAnchor;
+		if (player != null && openingAnchor != null)
+		{
+			return (player.Position - openingAnchor.position).sqrMagnitude <= 25f;
+		}
+		return false;
+	}
 
-                if (Input.GetKeyDown(KeyCode.Escape)) { End(false); return; }
-                if ((player.Position - Anchor.position).sqrMagnitude > 25f) { End(false); return; }
-                if (!TerminalInteractKey.Held()) { End(false); return; }
-                if (Time.time - _start >= Seconds) { End(true); return; }
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Gates] hold session threw: {e.Message}");
-                End(false);
-            }
-        }
+	internal static void BeginDuoWait(GamePlayerOwner owner, Transform anchor)
+	{
+		if (DuoSessionActive)
+		{
+			return;
+		}
+		_duoOwner = owner;
+		_duoAnchor = anchor ?? OpeningAnchor;
+		if (_duoAnchor == null)
+		{
+			Plugin.Log.LogWarning("[Gates] duo wait requested before the opening anchor was staged");
+			return;
+		}
+		GameObject gameObject = new GameObject("Terminal_GateDuoWait");
+		GateHoldSession session = gameObject.AddComponent<GateHoldSession>();
+		_duoWaitSession = session;
+		session.Owner = owner;
+		session.Anchor = _duoAnchor;
+		session.Seconds = 100f;
+		session.ShowProgress = false;
+		session.PanelText = "Waiting for teammate {0:F1}";
+		session.OnStart = () =>
+		{
+			if ((object)_duoWaitSession == session)
+			{
+				TerminalCoop.Request(TerminalEvent.GateDuoRegister);
+			}
+		};
+		session.OnSuccess = () =>
+		{
+			if ((object)_duoWaitSession == session)
+			{
+				ForgetDuoSession(session);
+				TerminalCoop.Request(TerminalEvent.GateDuoCancel);
+			}
+		};
+		session.OnCancel = () =>
+		{
+			if ((object)_duoWaitSession == session)
+			{
+				ForgetDuoSession(session);
+				TerminalCoop.Request(TerminalEvent.GateDuoCancel);
+			}
+		};
+	}
 
-        private void End(bool success)
-        {
-            if (_ending) return;
-            _ending = true;
-            if (_snd != null) _snd.Stop();
-            try
-            {
-                if (success)
-                {
-                    if (OnSuccess != null) OnSuccess();
-                }
-                else if (OnCancel != null) OnCancel();
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Gates] hold completion threw: {e}"); }
-            finally { Destroy(gameObject); }
-        }
+	internal static void BeginDuoOpenHold()
+	{
+		if (_duoOpenSession != null)
+		{
+			return;
+		}
+		GamePlayerOwner duoOwner = _duoOwner;
+		Transform transform = _duoAnchor ?? OpeningAnchor;
+		CancelDuoHolds();
+		if (transform == null)
+		{
+			Plugin.Log.LogWarning("[Gates] duo ready arrived before the opening anchor was staged");
+			TerminalCoop.Request(TerminalEvent.GateDuoCancel);
+			return;
+		}
+		_duoOwner = duoOwner;
+		_duoAnchor = transform;
+		_duoOpeningBranchSuppressed = true;
+		Emit("start_open_gates_duo_3037225082");
+		GameObject gameObject = new GameObject("Terminal_GateDuoOpen");
+		GateHoldSession session = gameObject.AddComponent<GateHoldSession>();
+		_duoOpenSession = session;
+		session.Owner = duoOwner;
+		session.Anchor = transform;
+		session.Seconds = 5f;
+		session.PanelText = "Opening gate {0:F1}";
+		session.FoleyClip = "amb_terminal_interactive_gates_02_handle_open";
+		session.OnSuccess = () =>
+		{
+			if ((object)_duoOpenSession == session)
+			{
+				ForgetDuoSession(session);
+				TerminalCoop.Request(TerminalEvent.GateDuoFinish);
+			}
+		};
+		session.OnCancel = () =>
+		{
+			if ((object)_duoOpenSession == session)
+			{
+				ForgetDuoSession(session);
+				ClearDuoOpeningBranch(restoreOpening: true);
+				TerminalCoop.Request(TerminalEvent.GateDuoCancel);
+			}
+		};
+	}
 
-        private void OnDestroy()
-        {
-            if (_handsLocked)
-            {
-                var mc = Singleton<GameWorld>.Instance?.MainPlayer?.MovementContext;
-                if (mc != null) mc.BlockFirearms = false;
-                TerminalHoldLock.Release();
-            }
-            if (_panelShown && Owner != null) Owner.CloseObjectivesPanel();
-        }
-    }
+	internal static void CancelDuoHolds(bool restoreOpening = false)
+	{
+		GateHoldSession duoWaitSession = _duoWaitSession;
+		GateHoldSession duoOpenSession = _duoOpenSession;
+		_duoWaitSession = null;
+		_duoOpenSession = null;
+		_duoOwner = null;
+		_duoAnchor = null;
+		if (duoWaitSession != null)
+		{
+			duoWaitSession.CancelSilently();
+		}
+		if (duoOpenSession != null)
+		{
+			duoOpenSession.CancelSilently();
+		}
+		ClearDuoOpeningBranch(restoreOpening);
+	}
 
-    // own the gate switches' action menus (the icebreaker chain-door pattern) —
-    // matched by GO NAME in a Terminal scene, not by switch Id (id fields are
-    // drift-suspect in the rip; names survived)
-    [HarmonyPatch(typeof(EFT.InteractionContextHelper), nameof(EFT.InteractionContextHelper.GetAvailableActions),
-        typeof(GamePlayerOwner), typeof(EFT.Interactive.Switch))]
-    internal static class Patch_GateSwitchActions
-    {
-        private static void Replace(ref EFT.UI.AvailableInteractionState result, EFT.UI.InteractionAction act)
-        {
-            if (result == null) result = new EFT.UI.AvailableInteractionState { Actions = new List<EFT.UI.InteractionAction> { act } };
-            else { result.Actions.Clear(); result.Actions.Add(act); }
-        }
+	private static void ClearDuoOpeningBranch(bool restoreOpening)
+	{
+		if (_duoOpeningBranchSuppressed)
+		{
+			_duoOpeningBranchSuppressed = false;
+			if (restoreOpening)
+			{
+				Emit("dropped_opening_gates_duo_3037225082");
+			}
+		}
+	}
 
-        private static bool Ours(EFT.Interactive.Switch sw)
-        {
-            try
-            {
-                var sc = sw.gameObject.scene.name;
-                return sc != null && sc.StartsWith("Terminal", StringComparison.OrdinalIgnoreCase);
-            }
-            catch { return false; }
-        }
+	private static void ForgetDuoSession(GateHoldSession session)
+	{
+		if ((object)_duoWaitSession == session)
+		{
+			_duoWaitSession = null;
+		}
+		if ((object)_duoOpenSession == session)
+		{
+			_duoOpenSession = null;
+		}
+		_duoOwner = null;
+		_duoAnchor = null;
+	}
 
-        private static void Postfix(ref EFT.UI.AvailableInteractionState __result, GamePlayerOwner owner, EFT.Interactive.Switch interactiveSwitch)
-        {
-            try
-            {
-                if (!Plugin.GatesExplosion.Value || interactiveSwitch == null || !Ours(interactiveSwitch)) return;
-                var goName = interactiveSwitch.gameObject.name;
+	internal static void TryStage()
+	{
+		if (_staged || !Plugin.GatesExplosion.Value || !TerminalGate.On)
+		{
+			return;
+		}
+		GameWorld gameWorld = (Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null);
+		if (gameWorld == null || gameWorld.TriggersEmitter == null)
+		{
+			return;
+		}
+		Transform transform = FindRoot();
+		if (!transform)
+		{
+			return;
+		}
+		JObject jObject;
+		try
+		{
+			string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "terminal_gates.json");
+			if (!File.Exists(path))
+			{
+				Plugin.Log.LogWarning("[Gates] terminal_gates.json missing — gate stays inert");
+				_staged = true;
+				return;
+			}
+			jObject = JObject.Parse(File.ReadAllText(path));
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Gates] sidecar parse failed: " + ex.Message);
+			_staged = true;
+			return;
+		}
+		try
+		{
+			_root = transform;
+			Dictionary<string, Transform> dictionary = new Dictionary<string, Transform>();
+			TerminalRigFill.IndexTree(transform, "Gates_explosion", dictionary);
+			TerminalRigFill.StageRows(jObject["rows"] as JArray, NativeSet, dictionary, "Gates");
+			TerminalRigFill.StageDelayShims(jObject["rows"] as JArray, "Gates");
+			dictionary.TryGetValue("Gates_explosion/Triggers/OpeningTriggers/StartTriggers/SoloOpeningTrigger", out _soloOpeningBranch);
+			if (dictionary.TryGetValue("Gates_explosion/Triggers/ExpoldeTriggers/item_spec_sz_1", out var value))
+			{
+				value.gameObject.SetActive(value: false);
+			}
+			string[] array = new string[2] { "Gates_explosion/Triggers/ExpoldeTriggers/Switch_bomb", "Gates_explosion/Triggers/OpeningTriggers/Switch/SwitchBoard" };
+			foreach (string text in array)
+			{
+				if (!dictionary.TryGetValue(text, out var value2))
+				{
+					Plugin.Log.LogWarning("[Gates] '" + text + "' GO not found — its prompt cannot appear");
+					continue;
+				}
+				Transform transform2 = value2;
+				while (transform2 != null && transform2 != transform.parent)
+				{
+					if (!transform2.gameObject.activeSelf)
+					{
+						transform2.gameObject.SetActive(value: true);
+					}
+					transform2 = transform2.parent;
+				}
+				Switch component = value2.GetComponent<Switch>();
+				if (!component)
+				{
+					Plugin.Log.LogWarning("[Gates] no Switch component on '" + text + "' — prompt dead (bundle husk?)");
+				}
+				else
+				{
+					component.enabled = true;
+				}
+			}
+			try
+			{
+				TriggersEmitter.Instance.Subscribe("bomb_explosion_3037225082", OnExplosionVfx);
+				TriggersEmitter.Instance.Subscribe("bomb_explosion_3037225082", () =>
+				{
+					_boomSeen = true;
+				});
+				TriggersEmitter.Instance.Subscribe("place_bomb_3037225082", () =>
+				{
+					new GameObject("Terminal_GateFuseWatchdog").AddComponent<FuseWatchdog>();
+				});
+			}
+			catch (Exception ex2)
+			{
+				Plugin.Log.LogWarning("[Gates] vfx listener subscribe failed: " + ex2.Message);
+			}
+			_staged = true;
+			TerminalRigFill.ScheduleSubscriberDump("Gates", "place_bomb_3037225082", "bomb_explosion_3037225082", "gates_opened_solo_3037225082");
+			Plugin.Log.LogInfo("[Gates] GATES_EXPLOSION RESTORED — retail fuse/blast/anim armed, interaction layer ours");
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Gates] staging failed: {arg}");
+			_staged = true;
+		}
+	}
 
-                if (goName == "Switch_bomb")
-                {
-                    if (TerminalGatesExplosion.Planted || TerminalGatesExplosion.Opened)
-                    {
-                        if (__result != null) __result.Actions.Clear();
-                        __result = null;
-                        return;
-                    }
-                    var player = Singleton<GameWorld>.Instance?.MainPlayer;
-                    bool hasCharge = player != null && TerminalGatesExplosion.FindCharge(player) != null;
-                    var sw = interactiveSwitch;
-                    Replace(ref __result, new EFT.UI.InteractionAction
-                    {
-                        Name = "Plant",
-                        Disabled = !hasCharge,
-                        Action = () =>
-                        {
-                            var go = new GameObject("Terminal_GatePlant");
-                            var s = go.AddComponent<GateHoldSession>();
-                            s.Owner = owner;
-                            s.Anchor = sw.transform;
-                            s.Seconds = TerminalGatesExplosion.PlantSeconds;
-                            s.PanelText = "Planting charge {0:F1}";
-                            s.FoleyClip = "amb_terminal_interactive_c6_plant_activate";
-                            s.OnSuccess = () =>
-                            {
-                                var p = Singleton<GameWorld>.Instance?.MainPlayer;
-                                if (TerminalCoop.Active)
-                                {
-                                    TerminalCoop.Plant?.Invoke(p);
-                                    return;
-                                }
-                                if (p == null || !TerminalGatesExplosion.ConsumeCharge(p))
-                                {
-                                    Plugin.Log.LogDebug("[Gates] hold finished but no charge — cancelled");
-                                    return;
-                                }
-                                TerminalGatesExplosion.Planted = true;
-                                // the 10.5s timer bed runs the fuse's length — the native
-                                // HandlerDelay boom lands over its tail
-                                TerminalGatesExplosion.PlayAt(
-                                    TerminalGatesExplosion.FindClip("amb_terminal_interactive_c6_timer"),
-                                    sw.transform.position, 30f);
-                                TerminalGatesExplosion.Emit(TerminalGatesExplosion.PlaceTrigger);
-                                try { owner?.ClearInteractionState(); } catch { }
-                            };
-                        },
-                    });
-                }
-                else if (goName == "SwitchBoard")
-                {
-                    if (TerminalGatesExplosion.Opened || TerminalGatesExplosion.Planted)
-                    {
-                        // planted = the gate's fate is sealed; opened = nothing left
-                        if (__result != null) __result.Actions.Clear();
-                        __result = null;
-                        return;
-                    }
-                    var player = Singleton<GameWorld>.Instance?.MainPlayer;
-                    bool elite = false;
-                    try { elite = player != null && player.Skills.Strength.IsEliteLevel; } catch { }
-                    var sw = interactiveSwitch;
-                    Replace(ref __result, new EFT.UI.InteractionAction
-                    {
-                        Name = elite ? "Open" : "Open (requires Elite Strength)",
-                        Disabled = !elite,
-                        Action = () =>
-                        {
-                            var go = new GameObject("Terminal_GateOpen");
-                            var s = go.AddComponent<GateHoldSession>();
-                            s.Owner = owner;
-                            s.Anchor = sw.transform;
-                            s.Seconds = TerminalGatesExplosion.OpenSeconds;
-                            s.PanelText = "Opening gate {0:F1}";
-                            // authored: solo/duo open triggers both play the handle clip
-                            s.FoleyClip = "amb_terminal_interactive_gates_02_handle_open";
-                            s.OnSuccess = () =>
-                            {
-                                if (TerminalCoop.Active)
-                                {
-                                    TerminalCoop.Request(TerminalEvent.GateOpen);
-                                    return;
-                                }
-                                TerminalGatesExplosion.Opened = true;
-                                TerminalGatesExplosion.Emit(TerminalGatesExplosion.SoloOpenTrigger);
-                                try { owner?.ClearInteractionState(); } catch { }
-                            };
-                        },
-                    });
-                }
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Gates] actions patch threw: {e.Message}"); }
-        }
-    }
+	private static void OnExplosionVfx()
+	{
+		if (TerminalCoop.Replaying)
+		{
+			return;
+		}
+		try
+		{
+			if (!_root)
+			{
+				return;
+			}
+			Vector3 position = _root.position;
+			Transform transform = TerminalRigFill.FindChildNamed(_root, "C4_Explosion");
+			if (transform != null)
+			{
+				position = transform.position;
+				if (!transform.gameObject.activeSelf)
+				{
+					transform.gameObject.SetActive(value: true);
+				}
+				ParticleSystem[] componentsInChildren = transform.GetComponentsInChildren<ParticleSystem>(includeInactive: true);
+				foreach (ParticleSystem particleSystem in componentsInChildren)
+				{
+					if (!particleSystem.isPlaying)
+					{
+						particleSystem.Play();
+					}
+				}
+			}
+			AudioClip audioClip = FindClip("amb_terminal_interactive_c6_detonate");
+			if (audioClip != null)
+			{
+				PlayAt(audioClip, position, 120f);
+			}
+			else
+			{
+				PlayAt(FindClip("IB_chain_door_explosion"), position, 120f);
+				PlayAt(FindClip("IB_chain_door_explosion_reaction"), position, 60f, 1f);
+			}
+			Plugin.Log.LogInfo("[Gates] C4_Explosion VFX + boom foley fired ('" + ((audioClip != null) ? audioClip.name : "IB fallback pair") + "')");
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Gates] vfx failed: " + ex.Message);
+		}
+	}
+
+	private static Transform FindRoot()
+	{
+		return TerminalRigFill.FindRootNamed("Gates_explosion");
+	}
+
+	internal static void Emit(string trigger)
+	{
+		try
+		{
+			TerminalWorldDiff.RecordEvent("map trigger", trigger);
+			Player player = Singleton<GameWorld>.Instance?.MainPlayer;
+			TriggersEmitter.Instance.Emit(trigger, (player != null) ? player.ProfileId : "");
+			Plugin.Log.LogInfo("[Gates] emitted '" + trigger + "'");
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Gates] emit '{trigger}' failed: {arg}");
+		}
+	}
+
+	internal static async Task<bool> ConsumeChargeCoop(Player player)
+	{
+		Item item = FindCharge(player);
+		if (item == null)
+		{
+			return false;
+		}
+		if (IsCharge(player.HandsController?.Item))
+		{
+			TaskCompletionSource<bool> done = new TaskCompletionSource<bool>();
+			player.SetEmptyHands((Result<IEmptyHandsController> r) =>
+			{
+				done.TrySetResult(result: true);
+			});
+			if (await Task.WhenAny(done.Task, Task.Delay(30000)) != done.Task)
+			{
+				return false;
+			}
+			if (IsCharge(player.HandsController?.Item))
+			{
+				return false;
+			}
+		}
+		OperationResult<UnbindResult> operationResult = player.InventoryController.UnbindItemDirect(item, simulate: true);
+		if (!operationResult.Failed)
+		{
+			IResult result = await player.InventoryController.TryRunNetworkTransaction(operationResult);
+			if (result == null || result.Failed)
+			{
+				return false;
+			}
+		}
+		OperationResult<RemoveResult> operationResult2 = ItemManipulator.Remove(item, player.InventoryController, simulate: true);
+		if (operationResult2.Failed)
+		{
+			return false;
+		}
+		IResult result2 = await player.InventoryController.TryRunNetworkTransaction(operationResult2);
+		return result2 != null && !result2.Failed;
+	}
+
+	internal static bool IsCharge(Item it)
+	{
+		if (it == null)
+		{
+			return false;
+		}
+		string[] chargeTpls = ChargeTpls;
+		foreach (string text in chargeTpls)
+		{
+			if (it.TemplateId == (MongoID)text)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	internal static Item FindCharge(Player player)
+	{
+		if (player?.Profile?.Inventory == null)
+		{
+			return null;
+		}
+		foreach (Item allRealPlayerItem in player.Profile.Inventory.AllRealPlayerItems)
+		{
+			if (IsCharge(allRealPlayerItem))
+			{
+				return allRealPlayerItem;
+			}
+		}
+		return null;
+	}
+
+	private static void DispatchRemove(Player player, Item item)
+	{
+		try
+		{
+			OperationResult<UnbindResult> operationResult = player.InventoryController.UnbindItemDirect(item, simulate: true);
+			if (!operationResult.Failed)
+			{
+				player.InventoryController.TryRunNetworkTransaction(operationResult, (IResult r) =>
+				{
+					if (!r.Succeed)
+					{
+						Plugin.Log.LogWarning("[Gates] charge unbind failed post-validation: " + r.Error);
+					}
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Gates] unbind attempt threw (continuing): " + ex.Message);
+		}
+		OperationResult<RemoveResult> operationResult2 = ItemManipulator.Remove(item, player.InventoryController, simulate: true);
+		if (operationResult2.Failed)
+		{
+			Plugin.Log.LogWarning($"[Gates] charge remove validation failed: {operationResult2.Error}");
+			return;
+		}
+		player.InventoryController.TryRunNetworkTransaction(operationResult2, (IResult r) =>
+		{
+			if (!r.Succeed)
+			{
+				Plugin.Log.LogWarning("[Gates] charge remove failed post-validation: " + r.Error);
+			}
+		});
+		Plugin.Log.LogInfo("[Gates] consumed charge '" + item.Name.Localized() + "'");
+	}
+
+	internal static bool ConsumeCharge(Player player)
+	{
+		Item item = FindCharge(player);
+		if (item == null)
+		{
+			return false;
+		}
+		Item item2 = ((player.HandsController != null) ? player.HandsController.Item : null);
+		if (item2 == null || (item2 != item && !(item2.Id == item.Id) && !IsCharge(item2)))
+		{
+			DispatchRemove(player, item);
+			return true;
+		}
+		Plugin.Log.LogInfo("[Gates] charge IN HANDS — swapping to a weapon before consuming");
+		player.SetFirstAvailableItem((Result<IHandsController> r) =>
+		{
+			try
+			{
+				if (player.HandsController != null && IsCharge(player.HandsController.Item))
+				{
+					Plugin.Log.LogWarning("[Gates] hands still hold a charge after swap — NOT consumed");
+				}
+				else
+				{
+					DispatchRemove(player, item);
+				}
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[Gates] post-swap consume failed: " + ex.Message);
+			}
+		});
+		return true;
+	}
+
+	internal static AudioClip FindClip(string name)
+	{
+		return TerminalFxBundle.FindClip(name);
+	}
+
+	internal static void PlayAt(AudioClip clip, Vector3 pos, float maxDist, float delay = 0f)
+	{
+		if (!(clip == null))
+		{
+			GameObject gameObject = new GameObject("Terminal_GatesSnd");
+			gameObject.transform.position = pos;
+			AudioSource audioSource = gameObject.AddComponent<AudioSource>();
+			audioSource.clip = clip;
+			audioSource.spatialBlend = 1f;
+			audioSource.maxDistance = maxDist;
+			audioSource.rolloffMode = AudioRolloffMode.Linear;
+			TerminalAudioRouting.Route(audioSource, effects: true);
+			if (delay > 0f)
+			{
+				audioSource.PlayDelayed(delay);
+			}
+			else
+			{
+				audioSource.Play();
+			}
+			UnityEngine.Object.Destroy(gameObject, clip.length + delay + 0.5f);
+		}
+	}
+
+	internal static void PlayFlat(AudioClip clip, float volume)
+	{
+		if (!(clip == null))
+		{
+			GameObject gameObject = new GameObject("Terminal_FlatSnd");
+			AudioSource audioSource = gameObject.AddComponent<AudioSource>();
+			audioSource.clip = clip;
+			audioSource.spatialBlend = 0f;
+			audioSource.volume = volume;
+			TerminalAudioRouting.Route(audioSource, effects: true);
+			audioSource.Play();
+			UnityEngine.Object.Destroy(gameObject, clip.length + 0.5f);
+		}
+	}
+
+	internal static Vector3 RigPos()
+	{
+		if (!_root)
+		{
+			return Vector3.zero;
+		}
+		return _root.position;
+	}
 }

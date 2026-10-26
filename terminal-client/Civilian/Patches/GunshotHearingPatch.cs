@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using Comfort.Common;
 using EFT;
@@ -5,52 +6,50 @@ using HarmonyLib;
 using SPT.Reflection.Patching;
 using UnityEngine;
 
-namespace Manimal.Terminal.Civilian.Patches
+namespace Manimal.Terminal.Civilian.Patches;
+
+internal sealed class GunshotHearingPatch : ModulePatch
 {
-    // stamps every civilian in hearing radius with a shot timestamp + position so
-    // the flee layer panics off gunfire through walls. hooks the internal shoot
-    // routine (method_58) instead of the public OnShot event — the event carries
-    // no shooter argument.
-    internal sealed class GunshotHearingPatch : ModulePatch
-    {
-        // declared on base ItemHandsController; AccessTools walks the chain
-        private static readonly FieldInfo PlayerField =
-            AccessTools.Field(typeof(Player.FirearmController), "_player");
+	private static readonly FieldInfo PlayerField = AccessTools.Field(typeof(Player.FirearmController), "_player");
 
-        protected override MethodBase GetTargetMethod() =>
-            AccessTools.Method(typeof(Player.FirearmController), "Shot");
+	protected override MethodBase GetTargetMethod()
+	{
+		return AccessTools.Method(typeof(Player.FirearmController), "Shot");
+	}
 
-        [PatchPostfix]
-        private static void PatchPostfix(Player.FirearmController __instance)
-        {
-            var shooter = PlayerField?.GetValue(__instance) as Player;
-            if (shooter == null || !shooter.HealthController.IsAlive) return;
-
-            if (CivilianConstants.IsCivilian(shooter.Profile.Info.Settings.Role)) return;
-
-            var world = Singleton<GameWorld>.Instance;
-            if (world == null) return;
-            var players = world.AllAlivePlayersList;
-            if (players == null) return;
-
-            var shotPos = shooter.Position;
-            var radiusSqr = CivilianConstants.GunshotHearingRadius * CivilianConstants.GunshotHearingRadius;
-
-            for (int i = 0; i < players.Count; i++)
-            {
-                var p = players[i];
-                if (p == null || !p.HealthController.IsAlive) continue;
-                if (!CivilianConstants.IsCivilian(p.Profile.Info.Settings.Role)) continue;
-
-                var bot = p.AIData?.BotOwner;
-                if (bot == null) continue;
-
-                if ((p.Position - shotPos).sqrMagnitude > radiusSqr) continue;
-
-                var state = CivilianFleeState.Get(bot);
-                state.LastGunshotAt = Time.time;
-                state.LastGunshotPos = shotPos;
-            }
-        }
-    }
+	[PatchPostfix]
+	private static void PatchPostfix(Player.FirearmController __instance)
+	{
+		Player player = PlayerField?.GetValue(__instance) as Player;
+		if (player == null || !player.HealthController.IsAlive || CivilianConstants.IsCivilian(player.Profile.Info.Settings.Role))
+		{
+			return;
+		}
+		GameWorld instance = Singleton<GameWorld>.Instance;
+		if (instance == null)
+		{
+			return;
+		}
+		List<Player> allAlivePlayersList = instance.AllAlivePlayersList;
+		if (allAlivePlayersList == null)
+		{
+			return;
+		}
+		Vector3 position = player.Position;
+		float num = 2025f;
+		for (int i = 0; i < allAlivePlayersList.Count; i++)
+		{
+			Player player2 = allAlivePlayersList[i];
+			if (!(player2 == null) && player2.HealthController.IsAlive && CivilianConstants.IsCivilian(player2.Profile.Info.Settings.Role))
+			{
+				BotOwner botOwner = player2.AIData?.BotOwner;
+				if (!(botOwner == null) && !((player2.Position - position).sqrMagnitude > num))
+				{
+					CivilianFleeState.State state = CivilianFleeState.Get(botOwner);
+					state.LastGunshotAt = Time.time;
+					state.LastGunshotPos = position;
+				}
+			}
+		}
+	}
 }

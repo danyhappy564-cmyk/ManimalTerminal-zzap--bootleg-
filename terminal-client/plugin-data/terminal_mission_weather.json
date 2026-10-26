@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "opening": {
+    "TimeHour": 1,
+    "TimeMinute": 0,
+    "Cloudness": -0.2,
+    "Wind": 0.5,
+    "WindDirection": 3,
+    "Rain": 0.5,
+    "RainRandomness": 1,
+    "ScaterringFogDensity": 0.0055,
+    "Temperature": 20,
+    "AtmospherePressure": 760,
+    "LyingWater": 0
+  },
+  "presets": [
+    {
+      "id": "test1",
+      "lockWeather": 0,
+      "updateWeatherTime": 1,
+      "WeatherConfig": {
+        "TimeHour": 0,
+        "TimeMinute": 0,
+        "Cloudness": 0.0,
+        "Wind": 0.0,
+        "WindDirection": 0,
+        "Rain": 0.0,
+        "RainRandomness": 0.0,
+        "ScaterringFogDensity": 0.0,
+        "Temperature": 0.0,
+        "AtmospherePressure": 0.0,
+        "LyingWater": 0.0
+      }
+    },
+    {
+      "id": "ending_weather_1",
+      "lockWeather": 1,
+      "updateWeatherTime": 1,
+      "WeatherConfig": {
+        "TimeHour": 6,
+        "TimeMinute": 0,
+        "Cloudness": -0.20000000298023224,
+        "Wind": 0.5,
+        "WindDirection": 3,
+        "Rain": 0.5,
+        "RainRandomness": 1.0,
+        "ScaterringFogDensity": 0.00800000037997961,
+        "Temperature": 20.0,
+        "AtmospherePressure": 760.0,
+        "LyingWater": 0.0
+      }
+    },
+    {
+      "id": "ending_weather_without_rain_1",
+      "lockWeather": 1,
+      "updateWeatherTime": 0,
+      "WeatherConfig": {
+        "TimeHour": 6,
+        "TimeMinute": 0,
+        "Cloudness": -0.20000000298023224,
+        "Wind": 0.5,
+        "WindDirection": 3,
+        "Rain": 0.0,
+        "RainRandomness": 1.0,
+        "ScaterringFogDensity": 0.00800000037997961,
+        "Temperature": 20.0,
+        "AtmospherePressure": 760.0,
+        "LyingWater": 0.0
+      }
+    },
+    {
+      "id": "camp_fire_weather",
+      "lockWeather": 1,
+      "updateWeatherTime": 1,
+      "WeatherConfig": {
+        "TimeHour": 21,
+        "TimeMinute": 30,
+        "Cloudness": -0.20000000298023224,
+        "Wind": 0.5,
+        "WindDirection": 3,
+        "Rain": 0.0,
+        "RainRandomness": 1.0,
+        "ScaterringFogDensity": 0.00800000037997961,
+        "Temperature": 20.0,
+        "AtmospherePressure": 760.0,
+        "LyingWater": 0.0
+      }
+    }
+  ]
+}

@@ -1,287 +1,244 @@
 using System;
 using System.Collections.Generic;
-using SysIoPath = System.IO.Path;
+using System.IO;
+using System.Reflection;
 using EFT;
-using Comfort.Common;
+using EFT.Interactive;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
+using SPT.Reflection.Patching;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using ZLinq;
+using ZLinq.Linq;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalAIPlaces
 {
-    // terminal port of icebreaker's spawn-trigger layer (resurrection #4): the T0-T5 /
-    // TB1-TB8 trigger boxes recovered from level635 (extract_terminal_aiplaces.py).
-    // mechanism: AIPlaceInfo trigger box -> logic raises GlobalEventDispatcher.AnyEvent(name)
-    // on player entry -> BSG's BossSpawnScenario fires the base.json BossLocationSpawn
-    // waves with TriggerName=botEvent + TriggerId=name. 55 of terminal's 65 live boss
-    // waves are botEvent-gated — without this layer the map's spawn choreography never
-    // fires. terminal has no 1.0-only group-size logic (all 16 are plain EventRaise),
-    // and no crew bridge is needed: BSG's own scenario subscribes natively.
-    internal static class TerminalAIPlaces
-    {
-        private static JObject _sidecar;
-        private static bool _sidecarTried;
-        private static GameObject _marker;
+	internal sealed class Patch_BuildSpawnTriggers : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(BotsController), "Init");
+		}
 
-        internal static void ResetForNewRaid()
-        {
-            if (_marker != null) UnityEngine.Object.Destroy(_marker);
-            _marker = null;
-            TerminalTierEventLogic.ResetFireCounts();
-        }
+		[PatchPostfix]
+		private static void Postfix(BotsController __instance)
+		{
+			if (!TerminalGate.On || !TerminalCoop.Authority)
+			{
+				return;
+			}
+			try
+			{
+				TryBuild(__instance);
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[AIPlaces] build failed: " + ex.Message);
+			}
+			try
+			{
+				TerminalCrewJobs.Reset();
+				if (__instance.BotSpawner != null)
+				{
+					__instance.BotSpawner.OnBotCreated += TerminalCrewJobs.OnBotCreated;
+				}
+				TerminalHangarCrew.AugmentHangarZone();
+			}
+			catch (Exception ex2)
+			{
+				Plugin.Log.LogWarning("[AIPlaces] crew hook failed: " + ex2.Message);
+			}
+		}
+	}
 
-        private static string DataDir =>
-            SysIoPath.Combine(SysIoPath.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                "plugin-data", "aiplaces");
+	private static JObject _sidecar;
 
-        private static JObject Sidecar()
-        {
-            if (_sidecarTried) return _sidecar;
-            _sidecarTried = true;
-            try
-            {
-                var path = SysIoPath.Combine(DataDir, "terminal_aiplaces.json");
-                if (System.IO.File.Exists(path))
-                    _sidecar = JObject.Parse(System.IO.File.ReadAllText(path));
-                else
-                    Plugin.Log.LogDebug($"[AIPlaces] no sidecar at {path} — spawn triggers stay off");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[AIPlaces] sidecar parse failed: {e.Message}"); }
-            return _sidecar;
-        }
+	private static bool _sidecarTried;
 
-        // called from the BotsController.Init postfix — CoversData + holder exist, bots
-        // haven't spawned yet
-        [HarmonyPatch(typeof(BotsController), "Init")]
-        internal static class Patch_BuildSpawnTriggers
-        {
-            [HarmonyPostfix]
-            private static void Postfix(BotsController __instance)
-            {
-                if (!TerminalGate.On || !TerminalCoop.Authority) return;
-                try { TryBuild(__instance); }
-                catch (Exception e) { Plugin.Log.LogWarning($"[AIPlaces] build failed: {e.Message}"); }
-                // crew jobs: fresh book per raid, then watch every bot birth — tier-event
-                // window bots get the push job (BotSpawner nulls its events on dispose,
-                // so no cross-raid double-subscribe)
-                try
-                {
-                    TerminalCrewJobs.Reset();
-                    if (__instance.BotSpawner != null)
-                        __instance.BotSpawner.OnBotCreated += TerminalCrewJobs.OnBotCreated;
-                    TerminalHangarCrew.AugmentHangarZone(); // native fix: interior markers before any wave fires
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"[AIPlaces] crew hook failed: {e.Message}"); }
-            }
-        }
+	private static GameObject _marker;
 
-        public static void TryBuild(BotsController controller)
-        {
-            if (_marker != null) return;
-            var sc = Sidecar();
-            if (sc == null || !TerminalGate.On) return;
+	private static string DataDir => Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "aiplaces");
 
-            try
-            {
-                var holderGo = GameObject.Find("AIPlaceInfoHolder");
-                if (holderGo == null) { Plugin.Log.LogDebug("[AIPlaces] AIPlaceInfoHolder GO not in scene — aborting"); return; }
+	internal static void ResetForNewRaid()
+	{
+		if (_marker != null)
+		{
+			UnityEngine.Object.Destroy(_marker);
+		}
+		_marker = null;
+		TerminalTierEventLogic.ResetFireCounts();
+		TerminalBlackDivisionPlaces.ResetForNewRaid();
+	}
 
-                var index = new Dictionary<string, Transform>();
-                void Walk(Transform t, string p)
-                {
-                    index[p] = t;
-                    for (int i = 0; i < t.childCount; i++)
-                    {
-                        var c = t.GetChild(i);
-                        Walk(c, p + "/" + c.name);
-                    }
-                }
-                Walk(holderGo.transform, "AIPlaceInfoHolder");
+	private static JObject Sidecar()
+	{
+		if (_sidecarTried)
+		{
+			return _sidecar;
+		}
+		_sidecarTried = true;
+		try
+		{
+			string text = Path.Combine(DataDir, "terminal_aiplaces.json");
+			if (File.Exists(text))
+			{
+				_sidecar = JObject.Parse(File.ReadAllText(text));
+			}
+			else
+			{
+				Plugin.Log.LogDebug("[AIPlaces] no sidecar at " + text + " — spawn triggers stay off");
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[AIPlaces] sidecar parse failed: " + ex.Message);
+		}
+		return _sidecar;
+	}
 
-                // pass 1: event-raise logic. NOT the engine's AIPlaceLogicEventRaise —
-                // that one has zero player filter, so bots trip the boxes during their
-                // spawn frame and burn the one-shot events at raid start (icebreaker
-                // lesson). TierEventLogic is the same thing gated on the human player.
-                var logicByRef = new Dictionary<long, AIPlaceInfoLogic>();
-                foreach (var row in (sc["components"]?["AIPlaceLogicEventRaise"] as JArray) ?? new JArray())
-                {
-                    if (!index.TryGetValue(row.Value<string>("go") ?? "", out var t)) continue;
-                    var stale = t.gameObject.GetComponent<AIPlaceLogicEventRaise>();
-                    if (stale != null) UnityEngine.Object.Destroy(stale);
-                    var lg = t.gameObject.GetComponent<TerminalTierEventLogic>() ?? t.gameObject.AddComponent<TerminalTierEventLogic>();
-                    var f = row["fields"];
-                    lg.EventName = f?.Value<string>("EventName") ?? "none";
-                    lg.EnterRaise = (f?.Value<int?>("EnterRaise") ?? 1) != 0;
-                    lg.ExitRaise = (f?.Value<int?>("ExitRaise") ?? 0) != 0;
-                    logicByRef[row.Value<long>("path_id")] = lg;
-                }
-
-                // pass 2: the AIPlaceInfo boxes
-                var holder = controller.CoversData != null ? controller.CoversData.AIPlaceInfoHolder : null;
-                if (holder == null) holder = UnityEngine.Object.FindObjectOfType<AIPlaceInfoHolder>();
-                if (holder != null && holder.Places == null) holder.Places = new List<AIPlaceInfo>();
-                var doors = UnityEngine.Object.FindObjectsOfType<EFT.Interactive.Door>();
-                int built = 0, evTriggers = 0;
-
-                foreach (var row in (sc["components"]?["AIPlaceInfo"] as JArray) ?? new JArray())
-                {
-                    var goPath = row.Value<string>("go") ?? "";
-                    if (!index.TryGetValue(goPath, out var t)) continue;
-                    var go = t.gameObject;
-                    var col = go.GetComponent<BoxCollider>();
-                    if (col == null) continue; // trigger box died in rip
-                    // the rip drops collider flags at random (Terminal_AI ships 30 solid +
-                    // 4 disabled boxes) and a non-trigger box never raises OnTriggerEnter —
-                    // these 17 are one-shot scripted spawn gates, force them live
-                    if (!col.isTrigger || !col.enabled)
-                    {
-                        Plugin.Log.LogDebug($"[AIPlaces] '{go.name}' collider healed (isTrigger={col.isTrigger}, enabled={col.enabled})");
-                        col.isTrigger = true;
-                        col.enabled = true;
-                    }
-                    if (!go.activeInHierarchy)
-                        Plugin.Log.LogWarning($"[AIPlaces] '{go.name}' is INACTIVE in hierarchy — trigger will not fire");
-
-                    var place = go.GetComponent<AIPlaceInfo>() ?? go.AddComponent<AIPlaceInfo>();
-                    var f = row["fields"];
-                    place.AreaId = f?.Value<int?>("AreaId") ?? 0;
-                    place.Id = f?.Value<string>("Id") ?? "";
-                    place.IsOnTrigger = (f?.Value<int?>("IsOnTrigger") ?? 1) != 0;
-                    place.BlockGrenade = (f?.Value<int?>("BlockGrenade") ?? 0) != 0;
-                    place.IsDark = (f?.Value<int?>("IsDark") ?? 0) != 0;
-                    place.IsMute = (f?.Value<int?>("IsMute") ?? 0) != 0;
-                    place.IsInside = (f?.Value<int?>("IsInside") ?? 0) != 0;
-                    place.AtrZone = (f?.Value<int?>("AtrZone") ?? 0) != 0;
-                    place.CoversSpecial = (ECoverPointSpecial)(f?.Value<int?>("CoversSpecial") ?? 0);
-                    place.UseAsCoverGroupId = (f?.Value<int?>("UseAsCoverGroupId") ?? 1) != 0;
-                    place.GrenadePlaces = Array.Empty<ThrowGrenadePlace>();
-                    place.Collider = go.GetComponent<BoxCollider>();
-
-                    long logicRef = (f?["InfoLogicAllEnemy"] as JObject)?.Value<long?>("ref") ?? 0;
-                    if (logicByRef.TryGetValue(logicRef, out var lg))
-                    {
-                        place.InfoLogicAllEnemy = lg;
-                        evTriggers++;
-                    }
-
-                    if (holder != null && (holder.Places == null || !holder.Places.Contains(place)))
-                        holder.AddPlace(place);
-                    place.Init(doors, controller);
-                    // Author-29 regression (2026-08-10): the places now sit in the
-                    // LocationScene registry, so BotsController.method_2 Init'd them
-                    // EMPTY before this fill ran — _isInited latched and the Init above
-                    // no-ops, which is a silent event-logic death (raid log: 17 live
-                    // triggers, player walked TB2, zero events). init the logic directly;
-                    // TierEventLogic.Init is idempotent so the fresh path double-call is
-                    // harmless
-                    if (place.InfoLogicAllEnemy != null)
-                        place.InfoLogicAllEnemy.Init(place, controller);
-                    built++;
-                    Plugin.Log.LogDebug($"[AIPlaces] trigger '{go.name}' live at {t.position} size {Vector3.Scale(col.size, t.lossyScale)}");
-                }
-
-                _marker = new GameObject("Terminal_AIPlacesStaged");
-                var scn = SceneManager.GetSceneByName("Terminal_AI");
-                if (scn.IsValid() && scn.isLoaded) SceneManager.MoveGameObjectToScene(_marker, scn);
-                Plugin.Log.LogInfo($"[AIPlaces] SPAWN TRIGGERS REBUILT: {built} places, {evTriggers} event logics — botEvent waves armed");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[AIPlaces] rebuild failed: {e}");
-            }
-        }
-    }
-
-    // the engine's AIPlaceLogicEventRaise minus its blind spot: it raises for ANY
-    // player (bots included), ours only for the human. fika teammates need a bridge
-    // like icebreaker's — solo-correct for now.
-    public class TerminalTierEventLogic : AIPlaceInfoLogic
-    {
-        public string EventName = "none";
-        public bool EnterRaise = true;
-        public bool ExitRaise;
-        private AIPlaceInfo _place;
-        private float _nextCoopPoll;
-        private readonly HashSet<string> _inside = new HashSet<string>();
-        private readonly List<Player> _humans = new List<Player>();
-
-        // Observed-player physics callbacks are not guaranteed on a headless host.
-        // Poll the authored volume too; OnEnter's profile latch merges both paths.
-        private void Update()
-        {
-            if (!TerminalCoop.Active || !TerminalCoop.Authority || Time.time < _nextCoopPoll) return;
-            _nextCoopPoll = Time.time + 0.25f;
-            var box = GetComponent<BoxCollider>();
-            if (!box || !box.enabled) return;
-            TerminalCoop.CollectHumans(_humans);
-            var present = new HashSet<string>();
-            foreach (var player in _humans)
-            {
-                var position = box.transform.InverseTransformPoint(player.Position);
-                if (new Bounds(box.center, box.size).Contains(position))
-                {
-                    present.Add(player.ProfileId);
-                    OnEnter(player);
-                }
-                else if (_inside.Contains(player.ProfileId)) OnExit(player);
-            }
-            _inside.RemoveWhere(id => !present.Contains(id));
-        }
-
-        public override void Init(AIPlaceInfo aiPlaceInfo, BotsController botsController)
-        {
-            if (_place == aiPlaceInfo) return; // already wired to this place
-            base.Init(aiPlaceInfo, botsController);
-            _place = aiPlaceInfo;
-            _place.OnPlayerEnter += OnEnter;
-            _place.OnPlayerExit += OnExit;
-            Plugin.Log.LogDebug($"[AIPlaces] event logic wired: '{gameObject.name}' -> '{EventName}'");
-        }
-
-        public override void Dispose()
-        {
-            if (_place != null) { _place.OnPlayerEnter -= OnEnter; _place.OnPlayerExit -= OnExit; }
-            base.Dispose();
-        }
-
-        // there is NO one-shot guard here — by design these mirror BSG's own
-        // EventRaise, which re-raises on every entry. that makes re-entry churn a
-        // real possibility (two separate boxes both raise 'T4'), so count the
-        // fires per raid and log at Warning: if an event climbs past 1-2, the
-        // player is crossing a boundary repeatedly and re-triggering waves.
-        internal static readonly Dictionary<string, int> FireCounts = new Dictionary<string, int>();
-        internal static void ResetFireCounts() => FireCounts.Clear();
-
-        private void OnEnter(Player p)
-        {
-            if (!TerminalCoop.Authority || !TerminalCoop.IsHuman(p)) return;
-            if (TerminalCoop.Active && !_inside.Add(p.ProfileId)) return;
-            if (EnterRaise)
-            {
-                FireCounts.TryGetValue(EventName, out var n);
-                FireCounts[EventName] = ++n;
-                Plugin.Log.LogWarning($"[AIPlaces] ENTER '{gameObject.name}' -> raising event '{EventName}' (fire #{n} this raid)");
-                TerminalCrewJobs.NoteEvent(EventName); // wave bots born off this event push the players
-                Singleton<GlobalEventDispatcher>.Instance?.AnyEvent(EventName);
-                TerminalPopulationDirector.EnsureProgressWavesActivated(EventName);
-                TerminalCoop.Request(TerminalEvent.Wave, EventName);
-            }
-        }
-
-        private void OnExit(Player p)
-        {
-            if (!TerminalCoop.Authority || !TerminalCoop.IsHuman(p)) return;
-            if (TerminalCoop.Active && !_inside.Remove(p.ProfileId)) return;
-            // log the exit even when ExitRaise is off — enter/exit churn is exactly
-            // what we're looking for and it's invisible otherwise
-            Plugin.Log.LogWarning($"[AIPlaces] EXIT  '{gameObject.name}' ('{EventName}')"
-                + (ExitRaise ? " -> raising on exit too" : ""));
-            if (ExitRaise)
-            {
-                Singleton<GlobalEventDispatcher>.Instance?.AnyEvent(EventName);
-                TerminalPopulationDirector.EnsureProgressWavesActivated(EventName);
-            }
-        }
-    }
+	public static void TryBuild(BotsController controller)
+	{
+		//IL_066c: Unknown result type (might be due to invalid IL or missing references)
+		if (_marker != null)
+		{
+			return;
+		}
+		JObject jObject = Sidecar();
+		if (jObject == null || !TerminalGate.On)
+		{
+			return;
+		}
+		try
+		{
+			GameObject gameObject = GameObject.Find("AIPlaceInfoHolder");
+			if (gameObject == null)
+			{
+				Plugin.Log.LogDebug("[AIPlaces] AIPlaceInfoHolder GO not in scene — aborting");
+				return;
+			}
+			Dictionary<string, Transform> index = new Dictionary<string, Transform>();
+			Walk(gameObject.transform, "AIPlaceInfoHolder");
+			Dictionary<long, AIPlaceInfoLogic> dictionary = new Dictionary<long, AIPlaceInfoLogic>();
+			foreach (JToken item in (jObject["components"]?["AIPlaceLogicEventRaise"] as JArray) ?? new JArray())
+			{
+				if (index.TryGetValue(item.Value<string>("go") ?? "", out var value))
+				{
+					AIPlaceLogicEventRaise component = value.gameObject.GetComponent<AIPlaceLogicEventRaise>();
+					if (component != null)
+					{
+						UnityEngine.Object.Destroy(component);
+					}
+					TerminalTierEventLogic terminalTierEventLogic = value.gameObject.GetComponent<TerminalTierEventLogic>() ?? value.gameObject.AddComponent<TerminalTierEventLogic>();
+					JToken jToken = item["fields"];
+					terminalTierEventLogic.EventName = jToken?.Value<string>("EventName") ?? "none";
+					terminalTierEventLogic.EnterRaise = (jToken?.Value<int?>("EnterRaise") ?? 1) != 0;
+					terminalTierEventLogic.ExitRaise = (jToken?.Value<int?>("ExitRaise")).GetValueOrDefault() != 0;
+					terminalTierEventLogic.OnlyPlayerNotAI = (jToken?.Value<int?>("OnlyPlayerNotAI") ?? jToken?.Value<int?>("retailExtra_0") ?? 1) != 0;
+					dictionary[item.Value<long>("path_id")] = terminalTierEventLogic;
+				}
+			}
+			AIPlaceInfoHolder aIPlaceInfoHolder = ((controller.CoversData != null) ? controller.CoversData.AIPlaceInfoHolder : null);
+			if (aIPlaceInfoHolder == null)
+			{
+				aIPlaceInfoHolder = UnityEngine.Object.FindObjectOfType<AIPlaceInfoHolder>();
+			}
+			if (aIPlaceInfoHolder != null && aIPlaceInfoHolder.Places == null)
+			{
+				aIPlaceInfoHolder.Places = new List<AIPlaceInfo>();
+			}
+			TerminalBlackDivisionPlaces.SetHolder(aIPlaceInfoHolder);
+			Door[] allDoors = UnityEngine.Object.FindObjectsOfType<Door>();
+			int num = 0;
+			int num2 = 0;
+			foreach (JToken item2 in (jObject["components"]?["AIPlaceInfo"] as JArray) ?? new JArray())
+			{
+				string key = item2.Value<string>("go") ?? "";
+				if (!index.TryGetValue(key, out var value2))
+				{
+					continue;
+				}
+				GameObject gameObject2 = value2.gameObject;
+				BoxCollider component2 = gameObject2.GetComponent<BoxCollider>();
+				if (component2 == null)
+				{
+					continue;
+				}
+				if (!component2.isTrigger || !component2.enabled)
+				{
+					Plugin.Log.LogDebug($"[AIPlaces] '{gameObject2.name}' collider healed (isTrigger={component2.isTrigger}, enabled={component2.enabled})");
+					component2.isTrigger = true;
+					component2.enabled = true;
+				}
+				if (!gameObject2.activeInHierarchy)
+				{
+					Plugin.Log.LogWarning("[AIPlaces] '" + gameObject2.name + "' is INACTIVE in hierarchy — trigger will not fire");
+				}
+				AIPlaceInfo aIPlaceInfo = gameObject2.GetComponent<AIPlaceInfo>() ?? gameObject2.AddComponent<AIPlaceInfo>();
+				JToken jToken2 = item2["fields"];
+				aIPlaceInfo.AreaId = (jToken2?.Value<int?>("AreaId")).GetValueOrDefault();
+				aIPlaceInfo.Id = jToken2?.Value<string>("Id") ?? "";
+				aIPlaceInfo.IsOnTrigger = (jToken2?.Value<int?>("IsOnTrigger") ?? 1) != 0;
+				aIPlaceInfo.BlockGrenade = (jToken2?.Value<int?>("BlockGrenade")).GetValueOrDefault() != 0;
+				aIPlaceInfo.IsDark = (jToken2?.Value<int?>("IsDark")).GetValueOrDefault() != 0;
+				aIPlaceInfo.IsMute = (jToken2?.Value<int?>("IsMute")).GetValueOrDefault() != 0;
+				aIPlaceInfo.IsInside = (jToken2?.Value<int?>("IsInside")).GetValueOrDefault() != 0;
+				aIPlaceInfo.AtrZone = (jToken2?.Value<int?>("AtrZone")).GetValueOrDefault() != 0;
+				aIPlaceInfo.CoversSpecial = (ECoverPointSpecial)(jToken2?.Value<int?>("CoversSpecial")).GetValueOrDefault();
+				aIPlaceInfo.UseAsCoverGroupId = (jToken2?.Value<int?>("UseAsCoverGroupId") ?? 1) != 0;
+				aIPlaceInfo.GrenadePlaces = Array.Empty<ThrowGrenadePlace>();
+				aIPlaceInfo.Collider = gameObject2.GetComponent<BoxCollider>();
+				long valueOrDefault = ((jToken2?["InfoLogicAllEnemy"] as JObject)?.Value<long?>("ref")).GetValueOrDefault();
+				if (dictionary.TryGetValue(valueOrDefault, out var value3))
+				{
+					aIPlaceInfo.InfoLogicAllEnemy = value3;
+					num2++;
+				}
+				int num3 = jToken2?.Value<int?>("ConnectionGroupId") ?? (jToken2?.Value<int?>("retailExtra_0")).GetValueOrDefault();
+				string[] array = ((!(jToken2?["BlackDivisionPossibleZones"] is JArray jArray)) ? Array.Empty<string>() : ValueEnumerableExtensions.ToArray<FromEnumerable<string>, string>(ValueEnumerable.AsValueEnumerable<string>(jArray.Values<string>())));
+				if (num3 > 0 && array.Length != 0)
+				{
+					TerminalBlackDivisionLogic terminalBlackDivisionLogic = TerminalBlackDivisionPlaces.Bind(aIPlaceInfo, num3, array);
+					if (terminalBlackDivisionLogic != null)
+					{
+						aIPlaceInfo.InfoLogicAllEnemy = terminalBlackDivisionLogic;
+						Plugin.Log.LogDebug("[AIPlaces] Black Division ownership logic bound to '" + gameObject2.name + "' " + $"area={aIPlaceInfo.AreaId} connectionGroup={num3}");
+					}
+				}
+				if (aIPlaceInfoHolder != null && (aIPlaceInfoHolder.Places == null || !aIPlaceInfoHolder.Places.Contains(aIPlaceInfo)))
+				{
+					aIPlaceInfoHolder.AddPlace(aIPlaceInfo);
+				}
+				aIPlaceInfo.Init(allDoors, controller);
+				if (aIPlaceInfo.InfoLogicAllEnemy != null)
+				{
+					aIPlaceInfo.InfoLogicAllEnemy.Init(aIPlaceInfo, controller);
+				}
+				num++;
+				Plugin.Log.LogDebug($"[AIPlaces] trigger '{gameObject2.name}' live at {value2.position} size {Vector3.Scale(component2.size, value2.lossyScale)}");
+			}
+			_marker = new GameObject("Terminal_AIPlacesStaged");
+			Scene sceneByName = SceneManager.GetSceneByName("Terminal_AI");
+			if (sceneByName.IsValid() && sceneByName.isLoaded)
+			{
+				SceneManager.MoveGameObjectToScene(_marker, sceneByName);
+			}
+			Plugin.Log.LogInfo($"[AIPlaces] SPAWN TRIGGERS REBUILT: {num} places, {num2} event logics — botEvent waves armed");
+			void Walk(Transform t, string p)
+			{
+				index[p] = t;
+				for (int i = 0; i < t.childCount; i++)
+				{
+					Transform child = t.GetChild(i);
+					Walk(child, p + "/" + child.name);
+				}
+			}
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[AIPlaces] rebuild failed: {arg}");
+		}
+	}
 }

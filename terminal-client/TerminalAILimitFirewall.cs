@@ -1,113 +1,139 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using Comfort.Common;
 using EFT;
 using HarmonyLib;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalAILimitFirewall
 {
-    // AI Limit's population model conflicts with Terminal's authored stage director:
-    // it disables distant bot GameObjects (and marks their BotOwners NonActive), while
-    // Terminal deliberately keeps a small, exact living population and moves survivors
-    // forward as later stages request them.  Patch the optional mod by reflection so we
-    // do not acquire a hard DLL dependency, and suppress it only while TerminalGate is
-    // on. Every other location continues through AI Limit's original code unchanged.
-    internal static class TerminalAILimitFirewall
-    {
-        private const string ComponentTypeName = "AILimit.AILimitComponent";
-        private static readonly object Sync = new object();
-        private static Harmony _harmony;
-        private static Type _componentType;
-        private static bool _installed;
+	private const string ComponentTypeName = "AILimit.AILimitComponent";
 
-        internal static void Install(Harmony harmony)
-        {
-            _harmony = harmony;
-            TryInstall();
-        }
+	private static readonly object Sync = new object();
 
-        internal static void TryInstall()
-        {
-            if (_installed || _harmony == null) return;
-            lock (Sync)
-            {
-                if (_installed) return;
-                var type = AccessTools.TypeByName(ComponentTypeName);
-                if (type == null) return; // optional mod is absent or has not loaded yet
+	private static Harmony _harmony;
 
-                try
-                {
-                    var enable = AccessTools.Method(type, "Enable");
-                    var update = AccessTools.Method(type, "Update");
-                    if (enable == null || update == null)
-                    {
-                        Plugin.Log.LogWarning("[Compat] AI Limit detected, but its Enable/Update layout is unknown; Terminal firewall could not arm");
-                        return;
-                    }
+	private static Type _componentType;
 
-                    var prefix = new HarmonyMethod(AccessTools.Method(
-                        typeof(TerminalAILimitFirewall), nameof(AllowAILimitOutsideTerminal)));
-                    _harmony.Patch(enable, prefix: prefix);
-                    _harmony.Patch(update, prefix: prefix);
-                    _componentType = type;
-                    _installed = true;
-                    Plugin.Log.LogWarning("[Compat] AI Limit detected — Terminal-only firewall armed; AI Limit remains unchanged on every other map");
-                }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogError($"[Compat] AI Limit firewall patch failed: {e}");
-                }
-            }
-        }
+	private static bool _installed;
 
-        // Harmony prefix for both the static Enable and instance Update methods.
-        private static bool AllowAILimitOutsideTerminal() => !TerminalGate.On;
+	internal static void Install(Harmony harmony)
+	{
+		_harmony = harmony;
+		TryInstall();
+	}
 
-        internal static void EnforceAtRaidStart()
-        {
-            TryInstall();
-            if (!TerminalGate.On || !_installed) return;
+	internal static void TryInstall()
+	{
+		if (_installed || _harmony == null)
+		{
+			return;
+		}
+		lock (Sync)
+		{
+			if (_installed)
+			{
+				return;
+			}
+			Type type = AccessTools.TypeByName("AILimit.AILimitComponent");
+			if (type == null)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo methodInfo = AccessTools.Method(type, "Enable");
+				MethodInfo methodInfo2 = AccessTools.Method(type, "Update");
+				if (methodInfo == null || methodInfo2 == null)
+				{
+					Plugin.Log.LogWarning("[Compat] AI Limit detected, but its Enable/Update layout is unknown; Terminal firewall could not arm");
+					return;
+				}
+				HarmonyMethod harmonyMethod = new HarmonyMethod(AccessTools.Method(typeof(TerminalAILimitFirewall), "AllowAILimitOutsideTerminal"));
+				_harmony.Patch((MethodBase)methodInfo, harmonyMethod, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null);
+				_harmony.Patch((MethodBase)methodInfo2, harmonyMethod, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null);
+				_componentType = type;
+				_installed = true;
+				Plugin.Log.LogWarning("[Compat] AI Limit detected — Terminal-only firewall armed; AI Limit remains unchanged on every other map");
+			}
+			catch (Exception arg)
+			{
+				Plugin.Log.LogError($"[Compat] AI Limit firewall patch failed: {arg}");
+			}
+		}
+	}
 
-            int reactivated = 0;
-            try
-            {
-                var world = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
-                if (!world) return;
+	private static bool AllowAILimitOutsideTerminal()
+	{
+		return !TerminalGate.On;
+	}
 
-                // Normally Enable was blocked, so no component exists. If plugin load
-                // order allowed it to be added first, disable it before its first Update.
-                var component = world.GetComponent(_componentType) as Behaviour;
-                if (component != null) component.enabled = false;
-
-                var spawner = Singleton<IBotGame>.Instantiated
-                    ? Singleton<IBotGame>.Instance.BotsController?.BotSpawner : null;
-                var bots = spawner?._bots?.BotOwners;
-                if (bots != null)
-                {
-                    foreach (var bot in bots)
-                    {
-                        try
-                        {
-                            if (!bot || bot.IsDead) continue;
-                            var player = bot.GetPlayer;
-                            if (!player || player.HealthController == null || !player.HealthController.IsAlive) continue;
-                            bool wasLimited = !player.gameObject.activeSelf || bot.BotState != EBotState.Active;
-                            var standBy = bot.StandBy;
-                            if (standBy != null)
-                            {
-                                standBy.Activate();
-                                standBy._nextCheckTime = Time.time + 10f;
-                            }
-                            if (!player.gameObject.activeSelf) player.gameObject.SetActive(true);
-                            bot.BotState = EBotState.Active;
-                            if (wasLimited) reactivated++;
-                        }
-                        catch (Exception e) { Plugin.Log.LogDebug($"[Compat] could not wake one AI Limit bot: {e.Message}"); }
-                    }
-                }
-                Plugin.Log.LogWarning($"[Compat] AI Limit suppressed for Terminal raid; restored {reactivated} previously limited bot(s)");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Compat] AI Limit Terminal enforcement failed: {e.Message}"); }
-        }
-    }
+	internal static void EnforceAtRaidStart()
+	{
+		TryInstall();
+		if (!TerminalGate.On || !_installed)
+		{
+			return;
+		}
+		int num = 0;
+		try
+		{
+			GameWorld gameWorld = (Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null);
+			if (!gameWorld)
+			{
+				return;
+			}
+			Behaviour behaviour = gameWorld.GetComponent(_componentType) as Behaviour;
+			if (behaviour != null)
+			{
+				behaviour.enabled = false;
+			}
+			IEnumerable<BotOwner> enumerable = ((!Singleton<IBotGame>.Instantiated) ? null : Singleton<IBotGame>.Instance.BotsController?.BotSpawner)?._bots?.BotOwners;
+			if (enumerable != null)
+			{
+				foreach (BotOwner item in enumerable)
+				{
+					try
+					{
+						if (!item || item.IsDead)
+						{
+							continue;
+						}
+						Player getPlayer = item.GetPlayer;
+						if ((bool)getPlayer && getPlayer.HealthController != null && getPlayer.HealthController.IsAlive)
+						{
+							bool num2 = !getPlayer.gameObject.activeSelf || item.BotState != EBotState.Active;
+							BotStandBy standBy = item.StandBy;
+							if (standBy != null)
+							{
+								standBy.Activate();
+								standBy._nextCheckTime = Time.time + 10f;
+							}
+							if (!getPlayer.gameObject.activeSelf)
+							{
+								getPlayer.gameObject.SetActive(value: true);
+							}
+							item.BotState = EBotState.Active;
+							if (num2)
+							{
+								num++;
+							}
+						}
+					}
+					catch (Exception ex)
+					{
+						Plugin.Log.LogDebug("[Compat] could not wake one AI Limit bot: " + ex.Message);
+					}
+				}
+			}
+			Plugin.Log.LogWarning($"[Compat] AI Limit suppressed for Terminal raid; restored {num} previously limited bot(s)");
+		}
+		catch (Exception ex2)
+		{
+			Plugin.Log.LogWarning("[Compat] AI Limit Terminal enforcement failed: " + ex2.Message);
+		}
+	}
 }

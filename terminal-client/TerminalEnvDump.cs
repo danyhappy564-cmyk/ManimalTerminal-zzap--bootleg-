@@ -1,132 +1,201 @@
 using System;
+using System.Collections;
 using System.Reflection;
+using System.Text;
+using BepInEx.Logging;
+using Comfort.Common;
+using EFT;
 using HarmonyLib;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalEnvDump
 {
-    // render-environment dumper, ported from icebreaker's RenderEnvProbe forensics.
-    // the icebreaker lesson this exists for: "the difference is almost never the
-    // camera itself, it's the scene's post volume + ambient" — and image-effect
-    // failures are SILENT (no exception in any log, proven twice there). F8 on a
-    // WORKING map, F8 on terminal, diff the two blocks.
-    internal static class TerminalEnvDump
-    {
-        internal static void Dump(string tag)
-        {
-            try { DumpInner(tag); }
-            catch (Exception e) { Plugin.Log.LogWarning($"[RenderEnv:{tag}] dump failed: {e.Message}"); }
-        }
+	internal static void Dump(string tag)
+	{
+		try
+		{
+			DumpInner(tag);
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[RenderEnv:" + tag + "] dump failed: " + ex.Message);
+		}
+	}
 
-        private static void DumpInner(string tag)
-        {
-            var L = Plugin.Log;
-            var loc = "<no world>";
-            try { var w = Comfort.Common.Singleton<EFT.GameWorld>.Instance; if (w != null) loc = w.LocationId; } catch { }
-            L.LogWarning($"===== [RenderEnv:{tag}] loc={loc} =====");
+	private static void DumpInner(string tag)
+	{
+		ManualLogSource log = Plugin.Log;
+		string text = "<no world>";
+		try
+		{
+			GameWorld instance = Singleton<GameWorld>.Instance;
+			if (instance != null)
+			{
+				text = instance.LocationId;
+			}
+		}
+		catch
+		{
+		}
+		log.LogWarning("===== [RenderEnv:" + tag + "] loc=" + text + " =====");
+		Camera camera = ((TerminalCullingDriver.CameraRef != null) ? TerminalCullingDriver.CameraRef : Camera.main);
+		if (camera != null)
+		{
+			log.LogWarning($"[RenderEnv] camera '{camera.name}': HDR={camera.allowHDR} MSAA={camera.allowMSAA} clear={camera.clearFlags} bg={camera.backgroundColor} fov={camera.fieldOfView:F1} cullMask=0x{camera.cullingMask:X} renderingPath={camera.actualRenderingPath}");
+			StringBuilder stringBuilder = new StringBuilder();
+			Component[] components = camera.GetComponents<Component>();
+			foreach (Component component in components)
+			{
+				if (component == null)
+				{
+					stringBuilder.Append(" <missing-script>");
+					continue;
+				}
+				Behaviour behaviour = component as Behaviour;
+				StringBuilder stringBuilder2 = stringBuilder;
+				string name = component.GetType().Name;
+				string text2;
+				if (behaviour != null)
+				{
+					text2 = (behaviour.enabled ? "" : "(OFF)");
+				}
+				else
+				{
+					text2 = "";
+				}
+				stringBuilder2.Append(" " + name + text2);
+			}
+			log.LogWarning($"[RenderEnv] camera chain:{stringBuilder}");
+		}
+		else
+		{
+			log.LogWarning("[RenderEnv] no camera!");
+		}
+		log.LogWarning($"[RenderEnv] ambient: mode={RenderSettings.ambientMode} intensity={RenderSettings.ambientIntensity:F2} " + $"light={RenderSettings.ambientLight} sky={RenderSettings.ambientSkyColor} eq={RenderSettings.ambientEquatorColor} gnd={RenderSettings.ambientGroundColor}");
+		log.LogWarning("[RenderEnv] skybox=" + ((RenderSettings.skybox != null) ? (RenderSettings.skybox.name + "/" + ((RenderSettings.skybox.shader != null) ? RenderSettings.skybox.shader.name : "?")) : "<null>") + " " + $"reflMode={RenderSettings.defaultReflectionMode} reflIntensity={RenderSettings.reflectionIntensity:F2} " + $"fog={RenderSettings.fog} fogColor={RenderSettings.fogColor} fogMode={RenderSettings.fogMode} fogDensity={RenderSettings.fogDensity:F4}");
+		try
+		{
+			Light[] array = UnityEngine.Object.FindObjectsOfType<Light>();
+			Array.Sort(array, (Light a, Light b) => b.intensity.CompareTo(a.intensity));
+			StringBuilder stringBuilder3 = new StringBuilder();
+			int num = 0;
+			Light[] array2 = array;
+			foreach (Light light in array2)
+			{
+				if (light.type == LightType.Directional && light.enabled)
+				{
+					num++;
+				}
+			}
+			for (int num2 = 0; num2 < array.Length && num2 < 8; num2++)
+			{
+				stringBuilder3.Append($"{array[num2].name}({array[num2].type},on={array[num2].enabled},i={array[num2].intensity:F1}) ");
+			}
+			log.LogWarning($"[RenderEnv] {array.Length} lights ({num} directional enabled), brightest: {stringBuilder3}");
+		}
+		catch (Exception ex)
+		{
+			log.LogWarning("[RenderEnv] lights failed: " + ex.Message);
+		}
+		DumpPostVolumes(log);
+		log.LogWarning("===== [RenderEnv:" + tag + "] end =====");
+	}
 
-            var cam = TerminalCullingDriver.CameraRef != null ? TerminalCullingDriver.CameraRef : Camera.main;
-            if (cam != null)
-            {
-                L.LogWarning($"[RenderEnv] camera '{cam.name}': HDR={cam.allowHDR} MSAA={cam.allowMSAA} clear={cam.clearFlags} bg={cam.backgroundColor} fov={cam.fieldOfView:F1} cullMask=0x{cam.cullingMask:X} renderingPath={cam.actualRenderingPath}");
-                // IMAGE EFFECTS RUN IN COMPONENT ORDER — the first broken one eats
-                // every later one. this is the actual execution order.
-                var sb = new System.Text.StringBuilder();
-                foreach (var c in cam.GetComponents<Component>())
-                {
-                    if (c == null) { sb.Append(" <missing-script>"); continue; }
-                    var b = c as Behaviour;
-                    sb.Append($" {c.GetType().Name}{(b != null ? (b.enabled ? "" : "(OFF)") : "")}");
-                }
-                L.LogWarning($"[RenderEnv] camera chain:{sb}");
-            }
-            else L.LogWarning("[RenderEnv] no camera!");
+	private static void DumpPostVolumes(ManualLogSource L)
+	{
+		Type type = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
+		if (type == null)
+		{
+			L.LogWarning("[RenderEnv] PostProcessVolume type not found");
+			return;
+		}
+		UnityEngine.Object[] array = UnityEngine.Object.FindObjectsOfType(type);
+		L.LogWarning($"[RenderEnv] {array.Length} PostProcessVolume(s)");
+		UnityEngine.Object[] array2 = array;
+		foreach (UnityEngine.Object obj in array2)
+		{
+			try
+			{
+				bool flag = (bool)(GetMember(obj, "isGlobal") ?? ((object)false));
+				float num = ToF(GetMember(obj, "priority"));
+				float num2 = ToF(GetMember(obj, "weight"));
+				object obj2 = GetMember(obj, "sharedProfile") ?? GetMember(obj, "profile");
+				string text = ((obj2 == null) ? "<null>" : (obj2 as UnityEngine.Object)?.name);
+				L.LogWarning($"[RenderEnv]  vol '{obj?.name}' global={flag} prio={num:F0} weight={num2:F2} enabled={(obj as Behaviour)?.enabled} profile={text}");
+				if (obj2 == null || !(GetMember(obj2, "settings") is IEnumerable enumerable))
+				{
+					continue;
+				}
+				foreach (object item in enumerable)
+				{
+					if (item != null)
+					{
+						bool flag2 = (bool)(GetMember(item, "active") ?? ((object)true));
+						L.LogWarning($"[RenderEnv]    {item.GetType().Name} active={flag2} {DumpOverriddenParams(item)}");
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				L.LogWarning("[RenderEnv]  vol dump failed: " + ex.Message);
+			}
+		}
+	}
 
-            L.LogWarning($"[RenderEnv] ambient: mode={RenderSettings.ambientMode} intensity={RenderSettings.ambientIntensity:F2} " +
-                         $"light={RenderSettings.ambientLight} sky={RenderSettings.ambientSkyColor} eq={RenderSettings.ambientEquatorColor} gnd={RenderSettings.ambientGroundColor}");
-            L.LogWarning($"[RenderEnv] skybox={(RenderSettings.skybox != null ? RenderSettings.skybox.name + "/" + (RenderSettings.skybox.shader != null ? RenderSettings.skybox.shader.name : "?") : "<null>")} " +
-                         $"reflMode={RenderSettings.defaultReflectionMode} reflIntensity={RenderSettings.reflectionIntensity:F2} " +
-                         $"fog={RenderSettings.fog} fogColor={RenderSettings.fogColor} fogMode={RenderSettings.fogMode} fogDensity={RenderSettings.fogDensity:F4}");
+	private static string DumpOverriddenParams(object effect)
+	{
+		StringBuilder stringBuilder = new StringBuilder();
+		FieldInfo[] fields = effect.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public);
+		foreach (FieldInfo fieldInfo in fields)
+		{
+			object value = fieldInfo.GetValue(effect);
+			if (value == null)
+			{
+				continue;
+			}
+			FieldInfo field = fieldInfo.FieldType.GetField("overrideState");
+			FieldInfo field2 = fieldInfo.FieldType.GetField("value");
+			if (field == null || field2 == null)
+			{
+				continue;
+			}
+			try
+			{
+				if ((bool)field.GetValue(value))
+				{
+					stringBuilder.Append($"{fieldInfo.Name}={field2.GetValue(value)} ");
+				}
+			}
+			catch
+			{
+			}
+		}
+		return stringBuilder.ToString();
+	}
 
-            // brightest lights — a 50-intensity anything would explain a crush
-            try
-            {
-                var lights = UnityEngine.Object.FindObjectsOfType<Light>();
-                Array.Sort(lights, (a, b) => b.intensity.CompareTo(a.intensity));
-                var sb = new System.Text.StringBuilder();
-                int dirCount = 0;
-                foreach (var l in lights) if (l.type == LightType.Directional && l.enabled) dirCount++;
-                for (int i = 0; i < lights.Length && i < 8; i++)
-                    sb.Append($"{lights[i].name}({lights[i].type},on={lights[i].enabled},i={lights[i].intensity:F1}) ");
-                L.LogWarning($"[RenderEnv] {lights.Length} lights ({dirCount} directional enabled), brightest: {sb}");
-            }
-            catch (Exception e) { L.LogWarning($"[RenderEnv] lights failed: {e.Message}"); }
+	private static object GetMember(object o, string name)
+	{
+		if (o == null)
+		{
+			return null;
+		}
+		Type type = o.GetType();
+		PropertyInfo property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+		if (property != null && property.CanRead)
+		{
+			return property.GetValue(o);
+		}
+		return type.GetField(name, BindingFlags.Instance | BindingFlags.Public)?.GetValue(o);
+	}
 
-            DumpPostVolumes(L);
-            L.LogWarning($"===== [RenderEnv:{tag}] end =====");
-        }
-
-        private static void DumpPostVolumes(BepInEx.Logging.ManualLogSource L)
-        {
-            var ppvType = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
-            if (ppvType == null) { L.LogWarning("[RenderEnv] PostProcessVolume type not found"); return; }
-            var vols = UnityEngine.Object.FindObjectsOfType(ppvType);
-            L.LogWarning($"[RenderEnv] {vols.Length} PostProcessVolume(s)");
-            foreach (var vol in vols)
-            {
-                try
-                {
-                    bool isGlobal = (bool)(GetMember(vol, "isGlobal") ?? false);
-                    float priority = ToF(GetMember(vol, "priority"));
-                    float weight = ToF(GetMember(vol, "weight"));
-                    var profile = GetMember(vol, "sharedProfile") ?? GetMember(vol, "profile");
-                    var profName = profile != null ? (profile as UnityEngine.Object)?.name : "<null>";
-                    L.LogWarning($"[RenderEnv]  vol '{(vol as UnityEngine.Object)?.name}' global={isGlobal} prio={priority:F0} weight={weight:F2} enabled={(vol as Behaviour)?.enabled} profile={profName}");
-                    if (profile == null) continue;
-                    var settings = GetMember(profile, "settings") as System.Collections.IEnumerable;
-                    if (settings == null) continue;
-                    foreach (var s in settings)
-                    {
-                        if (s == null) continue;
-                        bool active = (bool)(GetMember(s, "active") ?? true);
-                        L.LogWarning($"[RenderEnv]    {s.GetType().Name} active={active} {DumpOverriddenParams(s)}");
-                    }
-                }
-                catch (Exception e) { L.LogWarning($"[RenderEnv]  vol dump failed: {e.Message}"); }
-            }
-        }
-
-        // read every ParameterOverride<T> field that is actually overridden, as name=value
-        private static string DumpOverriddenParams(object effect)
-        {
-            var sb = new System.Text.StringBuilder();
-            foreach (var f in effect.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
-            {
-                var val = f.GetValue(effect);
-                if (val == null) continue;
-                var ovField = f.FieldType.GetField("overrideState");
-                var valField = f.FieldType.GetField("value");
-                if (ovField == null || valField == null) continue; // not a ParameterOverride
-                try
-                {
-                    if (!(bool)ovField.GetValue(val)) continue;
-                    sb.Append($"{f.Name}={valField.GetValue(val)} ");
-                }
-                catch { }
-            }
-            return sb.ToString();
-        }
-
-        private static object GetMember(object o, string name)
-        {
-            if (o == null) return null;
-            var t = o.GetType();
-            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-            if (p != null && p.CanRead) return p.GetValue(o);
-            var f = t.GetField(name, BindingFlags.Public | BindingFlags.Instance);
-            return f?.GetValue(o);
-        }
-
-        private static float ToF(object o) => o is float f ? f : 0f;
-    }
+	private static float ToF(object o)
+	{
+		if (o is float)
+		{
+			return (float)o;
+		}
+		return 0f;
+	}
 }

@@ -1900698,6 +1900698,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 9.240875244140625,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1900706,7 +1900707,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1900719,8 +1900720,7 @@
     "amb_terminal_metal_far_small_07",
     "amb_terminal_metal_far_small_08",
     "amb_terminal_metal_far_small_09",
-    "amb_terminal_metal_far_small_10",
-    "cold_metal_stress_04"
+    "amb_terminal_metal_far_small_10"
    ]
   },
   "5:150": {
@@ -1900865,6 +1900865,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 12.202249526977539,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1900873,7 +1900874,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1900883,8 +1900884,7 @@
     "amb_terminal_metal_far_middle_04",
     "amb_terminal_metal_far_middle_05",
     "amb_terminal_metal_far_middle_06",
-    "amb_terminal_metal_far_middle_07",
-    "cold_metal_stress_04"
+    "amb_terminal_metal_far_middle_07"
    ]
   },
   "10:235": {
@@ -1900922,6 +1900922,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 26.42300033569336,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1900930,7 +1900931,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1900940,8 +1900941,7 @@
     "amb_howl_wind_in_tubes_4",
     "amb_howl_wind_in_tubes_5",
     "amb_howl_wind_in_tubes_6",
-    "amb_howl_wind_in_tubes_7",
-    "cold_metal_stress_04"
+    "amb_howl_wind_in_tubes_7"
    ]
   },
   "10:225": {
@@ -1901335,6 +1901335,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 24.0,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901343,7 +1901344,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901353,8 +1901354,7 @@
     "amb_terminal_ships_containers_04",
     "amb_terminal_ships_containers_05",
     "amb_terminal_ships_containers_06",
-    "amb_terminal_ships_containers_07",
-    "cold_metal_stress_04"
+    "amb_terminal_ships_containers_07"
    ]
   },
   "5:153": {
@@ -1901363,6 +1901363,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 8.0,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901371,7 +1901372,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901384,8 +1901385,7 @@
     "amb_terminal_ships_creaking_07",
     "amb_terminal_ships_creaking_08",
     "amb_terminal_ships_creaking_09",
-    "amb_terminal_ships_creaking_10",
-    "cold_metal_stress_04"
+    "amb_terminal_ships_creaking_10"
    ]
   },
   "10:229": {
@@ -1901449,6 +1901449,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 10.0,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901457,7 +1901458,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901467,8 +1901468,7 @@
     "amb_terminal_ships_rope_04",
     "amb_terminal_ships_rope_05",
     "amb_terminal_ships_rope_06",
-    "amb_terminal_ships_rope_07",
-    "cold_metal_stress_04"
+    "amb_terminal_ships_rope_07"
    ]
   },
   "10:239": {
@@ -1901625,6 +1901625,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 7.041632652282715,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901633,7 +1901634,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901644,8 +1901645,7 @@
     "amb_terminal_metal_squeaks_small_05",
     "amb_terminal_metal_squeaks_small_06",
     "amb_terminal_metal_squeaks_small_07",
-    "amb_terminal_metal_squeaks_small_08",
-    "cold_metal_stress_04"
+    "amb_terminal_metal_squeaks_small_08"
    ]
   },
   "8:291": {
@@ -1901682,6 +1901682,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 12.346875190734863,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901690,7 +1901691,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901709,8 +1901710,7 @@
     "amb_terminal_metal_squeaks_big_13",
     "amb_terminal_metal_squeaks_big_14",
     "amb_terminal_metal_squeaks_big_15",
-    "amb_terminal_metal_squeaks_big_16",
-    "cold_metal_stress_04"
+    "amb_terminal_metal_squeaks_big_16"
    ]
   },
   "5:139": {
@@ -1901719,6 +1901719,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 23.266843795776367,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901727,12 +1901728,11 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
-    "amb_terminal_announce_arriving",
-    "cold_metal_stress_04"
+    "amb_terminal_announce_arriving"
    ]
   },
   "5:144": {
@@ -1901741,6 +1901741,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 9.517749786376953,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901749,7 +1901750,7 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
@@ -1901759,8 +1901760,7 @@
     "amb_terminal_metal_squeaks_middle_04",
     "amb_terminal_metal_squeaks_middle_05",
     "amb_terminal_metal_squeaks_middle_06",
-    "amb_terminal_metal_squeaks_middle_07",
-    "cold_metal_stress_04"
+    "amb_terminal_metal_squeaks_middle_07"
    ]
   },
   "5:137": {
@@ -1901769,6 +1901769,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 5.170952320098877,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901777,14 +1901778,13 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
     "amb_air_hiss_short_1",
     "amb_air_hiss_short_2",
-    "amb_air_hiss_short_3",
-    "cold_metal_stress_04"
+    "amb_air_hiss_short_3"
    ]
   },
   "5:151": {
@@ -1901793,6 +1901793,7 @@
    "source": "sharedassets636.assets",
    "fields": {
     "CustomLength": 0.0,
+    "_clipLiength": 6.154666900634766,
     "BaseVolume": 1.0,
     "BasePitch": 1.0,
     "DeltaVolume": 0.0,
@@ -1901801,12 +1901802,11 @@
     "IgnoreOcclusion": 0,
     "Physical": 0,
     "HasEnvironment": 0,
-    "SourceType": 0,
+    "SourceType": 4,
     "AllowLimitedPlay": 0
    },
    "clipNames": [
-    "amb_terminal_ship_horn",
-    "cold_metal_stress_04"
+    "amb_terminal_ship_horn"
    ]
   }
  },

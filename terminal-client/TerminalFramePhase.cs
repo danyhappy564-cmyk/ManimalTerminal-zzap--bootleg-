@@ -1,177 +1,294 @@
+using System;
 using System.Diagnostics;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalFramePhase
 {
-    // FRAME PHASE BREAKDOWN (2026-08-21).
-    //
-    // the chop has now survived every subsystem toggle, and the numbers say the
-    // cost is in NONE of the places we can already see: our Update tick reads
-    // 0.0ms, camera submit across ALL cameras reads 2-3ms, and the frame is 35ms.
-    // ~30ms is unaccounted for. FrameTimingManager returns zeros on this driver,
-    // so we can't ask the engine directly.
-    //
-    // so bracket the frame ourselves. two probes with extreme execution orders
-    // sandwich every other MonoBehaviour, and the camera callbacks mark the
-    // render window. the gaps between the marks localize the cost to a phase:
-    //
-    //   upd   = the whole Update phase (every MonoBehaviour Update in the game)
-    //   late  = the LateUpdate phase (animators, IK, camera follow)
-    //   cull  = last LateUpdate -> camera starts rendering (Unity's culling)
-    //   rend  = camera render submit
-    //   tail  = render end -> next frame's first Update
-    //           (present, vsync wait, GPU wait, FixedUpdate/physics)
-    //
-    // reading it: `tail` dominating with low everything else = we're waiting on
-    // the GPU or vsync, i.e. genuinely GPU-bound. `upd` dominating = some other
-    // MonoBehaviour's Update. `cull` dominating = Unity culling against too many
-    // renderers. that's the three-way split we've never been able to make.
-    internal static class TerminalFramePhase
-    {
-        private static readonly double TickMs = 1000.0 / Stopwatch.Frequency;
+	[DefaultExecutionOrder(-32000)]
+	internal class EarlyProbe : MonoBehaviour
+	{
+		private void Update()
+		{
+			if (TerminalGate.On)
+			{
+				MarkUpdateStart();
+			}
+		}
+	}
 
-        private static long _tUpdStart, _tUpdEnd, _tLateEnd, _tPreCull, _tPreRender, _tPostRender;
-        private static bool _havePrevPost;
+	[DefaultExecutionOrder(32000)]
+	internal class LateProbe : MonoBehaviour
+	{
+		private void Update()
+		{
+			if (TerminalGate.On)
+			{
+				MarkUpdateEnd();
+			}
+		}
 
-        internal static double UpdMs, LateMs, PostLateMs, CullMs, RendMs, TailMs;
-        internal static double AvgUpd, AvgLate, AvgPostLate, AvgCull, AvgRend, AvgTail;
-        internal static double PeakUpd, PeakLate, PeakPostLate, PeakCull, PeakRend, PeakTail;
+		private void LateUpdate()
+		{
+			if (TerminalGate.On)
+			{
+				MarkLateEnd();
+			}
+		}
+	}
 
-        private static bool _spawned;
-        private static GameObject _host;
+	private static readonly double TickMs = 1000.0 / (double)Stopwatch.Frequency;
 
-        internal static void EnsureSpawned()
-        {
-            if (_spawned) return;
-            _spawned = true;
-            _host = new GameObject("Manimal_TerminalFramePhase");
-            Object.DontDestroyOnLoad(_host);
-            _host.AddComponent<EarlyProbe>();
-            _host.AddComponent<LateProbe>();
-            Camera.onPreCull += OnPreCull;
-            Camera.onPreRender += OnPreRender;
-            Camera.onPostRender += OnPostRender;
-            Plugin.Log.LogInfo("[Phase] frame-phase profiler armed (upd/late/cull/rend/tail breakdown)");
-        }
+	private static long _tUpdStart;
 
-        internal static void Disable()
-        {
-            if (!_spawned) return;
-            Camera.onPreCull -= OnPreCull;
-            Camera.onPreRender -= OnPreRender;
-            Camera.onPostRender -= OnPostRender;
-            if (_host != null) Object.Destroy(_host);
-            _host = null;
-            _spawned = false;
-            _havePrevPost = false;
-            Plugin.Log.LogDebug("[Phase] frame-phase profiler disarmed off Terminal");
-        }
+	private static long _tUpdEnd;
 
-        internal static void ResetForRaid()
-        {
-            UpdMs = LateMs = PostLateMs = CullMs = RendMs = TailMs = 0;
-            AvgUpd = AvgLate = AvgPostLate = AvgCull = AvgRend = AvgTail = 0;
-            PeakUpd = PeakLate = PeakPostLate = PeakCull = PeakRend = PeakTail = 0;
-            _havePrevPost = false;
-        }
+	private static long _tLateEnd;
 
-        private static double Ms(long a, long b) => (b - a) * TickMs;
+	private static long _tPreCull;
 
-        internal static void MarkUpdateStart()
-        {
-            long now = Stopwatch.GetTimestamp();
-            // tail of the PREVIOUS frame closes here — everything between the last
-            // camera finishing and this frame's first Update: present, vsync wait,
-            // GPU wait, plus FixedUpdate/physics
-            if (_havePrevPost)
-            {
-                TailMs = Ms(_tPostRender, now);
-                AvgTail = AvgTail * 0.95 + TailMs * 0.05;
-                if (TailMs > PeakTail) PeakTail = TailMs;
-            }
-            _tUpdStart = now;
-        }
+	private static long _tPreRender;
 
-        internal static void MarkUpdateEnd()
-        {
-            _tUpdEnd = Stopwatch.GetTimestamp();
-            UpdMs = Ms(_tUpdStart, _tUpdEnd);
-            AvgUpd = AvgUpd * 0.95 + UpdMs * 0.05;
-            if (UpdMs > PeakUpd) PeakUpd = UpdMs;
-        }
+	private static long _tPostRender;
 
-        internal static void MarkLateEnd()
-        {
-            _tLateEnd = Stopwatch.GetTimestamp();
-            LateMs = Ms(_tUpdEnd, _tLateEnd);
-            AvgLate = AvgLate * 0.95 + LateMs * 0.05;
-            if (LateMs > PeakLate) PeakLate = LateMs;
-        }
+	private static bool _havePrevPost;
 
-        // Unity's order is onPreCull -> [culling] -> onPreRender, so splitting here
-        // separates the PostLateUpdate systems (UpdateAllRenderers /
-        // UpdateAllSkinnedMeshes / UpdateLightProbeProxyVolumes) from Unity's actual
-        // culling work. lumping them was hiding which of the two is the 36ms.
-        private static void OnPreCull(Camera cam)
-        {
-            if (!TerminalGate.On) return;
-            var fps = TerminalCullingDriver.CameraRef;
-            if (fps == null || cam != fps) return;
-            _tPreCull = Stopwatch.GetTimestamp();
-            PostLateMs = Ms(_tLateEnd, _tPreCull);
-            AvgPostLate = AvgPostLate * 0.95 + PostLateMs * 0.05;
-            if (PostLateMs > PeakPostLate) PeakPostLate = PostLateMs;
-        }
+	private static int _updateFrame = -1;
 
-        private static void OnPreRender(Camera cam)
-        {
-            if (!TerminalGate.On) return;
-            var fps = TerminalCullingDriver.CameraRef;
-            if (fps == null || cam != fps) return;   // only bracket the main camera
-            _tPreRender = Stopwatch.GetTimestamp();
-            CullMs = Ms(_tPreCull, _tPreRender);      // the culling pass proper
-            AvgCull = AvgCull * 0.95 + CullMs * 0.05;
-            if (CullMs > PeakCull) PeakCull = CullMs;
-        }
+	private static int _updateEndFrame = -1;
 
-        private static void OnPostRender(Camera cam)
-        {
-            if (!TerminalGate.On) return;
-            var fps = TerminalCullingDriver.CameraRef;
-            if (fps == null || cam != fps) return;
-            _tPostRender = Stopwatch.GetTimestamp();
-            _havePrevPost = true;
-            RendMs = Ms(_tPreRender, _tPostRender);
-            AvgRend = AvgRend * 0.95 + RendMs * 0.05;
-            if (RendMs > PeakRend) PeakRend = RendMs;
-        }
+	private static int _lateFrame = -1;
 
-        internal static string Summary()
-            => $"upd={AvgUpd:F1}/{PeakUpd:F0}p late={AvgLate:F1}/{PeakLate:F0}p "
-             + $"postLate={AvgPostLate:F1}/{PeakPostLate:F0}p cull={AvgCull:F1}/{PeakCull:F0}p "
-             + $"rend={AvgRend:F1}/{PeakRend:F0}p tail={AvgTail:F1}/{PeakTail:F0}p";
+	private static int _renderFrame = -1;
 
-        // exposed so the trace can measure onPostRender -> end of
-        // FinishFrameRendering: image effects + present/GPU wait
-        internal static long PostRenderStamp => _tPostRender;
+	private static int _completedFrame = -1;
 
-        internal static string Instant()
-            => $"upd={UpdMs:F1} late={LateMs:F1} postLate={PostLateMs:F1} cull={CullMs:F1} "
-             + $"rend={RendMs:F1} tail={TailMs:F1}";
+	private static double _completedUpd;
 
-        // -32000 puts this before every other script's Update in the frame
-        [DefaultExecutionOrder(-32000)]
-        internal class EarlyProbe : MonoBehaviour
-        {
-            private void Update() { if (TerminalGate.On) MarkUpdateStart(); }
-        }
+	private static double _completedLate;
 
-        // +32000 puts these after every other script's Update / LateUpdate
-        [DefaultExecutionOrder(32000)]
-        internal class LateProbe : MonoBehaviour
-        {
-            private void Update() { if (TerminalGate.On) MarkUpdateEnd(); }
-            private void LateUpdate() { if (TerminalGate.On) MarkLateEnd(); }
-        }
-    }
+	private static double _completedPostLate;
+
+	private static double _completedCull;
+
+	private static double _completedRend;
+
+	private static double _completedTail;
+
+	internal static double UpdMs;
+
+	internal static double LateMs;
+
+	internal static double PostLateMs;
+
+	internal static double CullMs;
+
+	internal static double RendMs;
+
+	internal static double TailMs;
+
+	internal static double AvgUpd;
+
+	internal static double AvgLate;
+
+	internal static double AvgPostLate;
+
+	internal static double AvgCull;
+
+	internal static double AvgRend;
+
+	internal static double AvgTail;
+
+	internal static double PeakUpd;
+
+	internal static double PeakLate;
+
+	internal static double PeakPostLate;
+
+	internal static double PeakCull;
+
+	internal static double PeakRend;
+
+	internal static double PeakTail;
+
+	private static bool _spawned;
+
+	private static GameObject _host;
+
+	internal static long PostRenderStamp => _tPostRender;
+
+	internal static void EnsureSpawned()
+	{
+		if (!_spawned)
+		{
+			_spawned = true;
+			_host = new GameObject("Manimal_TerminalFramePhase");
+			UnityEngine.Object.DontDestroyOnLoad(_host);
+			_host.AddComponent<EarlyProbe>();
+			_host.AddComponent<LateProbe>();
+			Camera.onPreCull = (Camera.CameraCallback)Delegate.Combine(Camera.onPreCull, new Camera.CameraCallback(OnPreCull));
+			Camera.onPreRender = (Camera.CameraCallback)Delegate.Combine(Camera.onPreRender, new Camera.CameraCallback(OnPreRender));
+			Camera.onPostRender = (Camera.CameraCallback)Delegate.Combine(Camera.onPostRender, new Camera.CameraCallback(OnPostRender));
+			Plugin.Log.LogInfo("[Phase] frame-phase profiler armed (upd/late/cull/rend/tail breakdown)");
+		}
+	}
+
+	internal static void Disable()
+	{
+		if (_spawned)
+		{
+			Camera.onPreCull = (Camera.CameraCallback)Delegate.Remove(Camera.onPreCull, new Camera.CameraCallback(OnPreCull));
+			Camera.onPreRender = (Camera.CameraCallback)Delegate.Remove(Camera.onPreRender, new Camera.CameraCallback(OnPreRender));
+			Camera.onPostRender = (Camera.CameraCallback)Delegate.Remove(Camera.onPostRender, new Camera.CameraCallback(OnPostRender));
+			if (_host != null)
+			{
+				UnityEngine.Object.Destroy(_host);
+			}
+			_host = null;
+			_spawned = false;
+			_havePrevPost = false;
+			_completedFrame = -1;
+			Plugin.Log.LogDebug("[Phase] frame-phase profiler disarmed off Terminal");
+		}
+	}
+
+	internal static void ResetForRaid()
+	{
+		UpdMs = (LateMs = (PostLateMs = (CullMs = (RendMs = (TailMs = 0.0)))));
+		AvgUpd = (AvgLate = (AvgPostLate = (AvgCull = (AvgRend = (AvgTail = 0.0)))));
+		PeakUpd = (PeakLate = (PeakPostLate = (PeakCull = (PeakRend = (PeakTail = 0.0)))));
+		_havePrevPost = false;
+		_updateFrame = (_updateEndFrame = (_lateFrame = (_renderFrame = (_completedFrame = -1))));
+	}
+
+	private static double Ms(long a, long b)
+	{
+		return (double)(b - a) * TickMs;
+	}
+
+	internal static void MarkUpdateStart()
+	{
+		long timestamp = Stopwatch.GetTimestamp();
+		int num = Time.frameCount - 1;
+		if (_havePrevPost && _renderFrame == num)
+		{
+			TailMs = Ms(_tPostRender, timestamp);
+			AvgTail = AvgTail * 0.95 + TailMs * 0.05;
+			if (TailMs > PeakTail)
+			{
+				PeakTail = TailMs;
+			}
+		}
+		_completedFrame = -1;
+		if (_havePrevPost && _updateFrame == num && _updateEndFrame == num && _lateFrame == num && _renderFrame == num)
+		{
+			_completedFrame = num;
+			_completedUpd = UpdMs;
+			_completedLate = LateMs;
+			_completedPostLate = PostLateMs;
+			_completedCull = CullMs;
+			_completedRend = RendMs;
+			_completedTail = TailMs;
+		}
+		_updateFrame = Time.frameCount;
+		_tUpdStart = timestamp;
+	}
+
+	internal static void MarkUpdateEnd()
+	{
+		_tUpdEnd = Stopwatch.GetTimestamp();
+		_updateEndFrame = Time.frameCount;
+		UpdMs = Ms(_tUpdStart, _tUpdEnd);
+		AvgUpd = AvgUpd * 0.95 + UpdMs * 0.05;
+		if (UpdMs > PeakUpd)
+		{
+			PeakUpd = UpdMs;
+		}
+	}
+
+	internal static void MarkLateEnd()
+	{
+		_tLateEnd = Stopwatch.GetTimestamp();
+		_lateFrame = Time.frameCount;
+		LateMs = Ms(_tUpdEnd, _tLateEnd);
+		AvgLate = AvgLate * 0.95 + LateMs * 0.05;
+		if (LateMs > PeakLate)
+		{
+			PeakLate = LateMs;
+		}
+	}
+
+	private static void OnPreCull(Camera cam)
+	{
+		if (!TerminalGate.On)
+		{
+			return;
+		}
+		Camera cameraRef = TerminalCullingDriver.CameraRef;
+		if (!(cameraRef == null) && !(cam != cameraRef))
+		{
+			_tPreCull = Stopwatch.GetTimestamp();
+			PostLateMs = Ms(_tLateEnd, _tPreCull);
+			AvgPostLate = AvgPostLate * 0.95 + PostLateMs * 0.05;
+			if (PostLateMs > PeakPostLate)
+			{
+				PeakPostLate = PostLateMs;
+			}
+		}
+	}
+
+	private static void OnPreRender(Camera cam)
+	{
+		if (!TerminalGate.On)
+		{
+			return;
+		}
+		Camera cameraRef = TerminalCullingDriver.CameraRef;
+		if (!(cameraRef == null) && !(cam != cameraRef))
+		{
+			_tPreRender = Stopwatch.GetTimestamp();
+			CullMs = Ms(_tPreCull, _tPreRender);
+			AvgCull = AvgCull * 0.95 + CullMs * 0.05;
+			if (CullMs > PeakCull)
+			{
+				PeakCull = CullMs;
+			}
+		}
+	}
+
+	private static void OnPostRender(Camera cam)
+	{
+		if (!TerminalGate.On)
+		{
+			return;
+		}
+		Camera cameraRef = TerminalCullingDriver.CameraRef;
+		if (!(cameraRef == null) && !(cam != cameraRef))
+		{
+			_tPostRender = Stopwatch.GetTimestamp();
+			_renderFrame = Time.frameCount;
+			_havePrevPost = true;
+			RendMs = Ms(_tPreRender, _tPostRender);
+			AvgRend = AvgRend * 0.95 + RendMs * 0.05;
+			if (RendMs > PeakRend)
+			{
+				PeakRend = RendMs;
+			}
+		}
+	}
+
+	internal static string Summary()
+	{
+		return $"upd={AvgUpd:F1}/{PeakUpd:F0}p late={AvgLate:F1}/{PeakLate:F0}p " + $"postLate={AvgPostLate:F1}/{PeakPostLate:F0}p cull={AvgCull:F1}/{PeakCull:F0}p " + $"rend={AvgRend:F1}/{PeakRend:F0}p tail={AvgTail:F1}/{PeakTail:F0}p";
+	}
+
+	internal static string Instant()
+	{
+		if (_completedFrame < 0 || _completedFrame != Time.frameCount - 1)
+		{
+			return $"frame={Time.frameCount - 1} incomplete";
+		}
+		return $"frame={_completedFrame} upd={_completedUpd:F1} late={_completedLate:F1} postLate={_completedPostLate:F1} cull={_completedCull:F1} " + $"rend={_completedRend:F1} tail={_completedTail:F1}";
+	}
 }

@@ -1,0 +1,462 @@
+{
+  "schema": 1,
+  "retailVersion": "1.1.5.47510",
+  "source": {
+    "file": "resources.assets",
+    "rootPathId": 47529,
+    "rootRawSha256": "d3163a16683be2fad6df366cf6b9d3d3dc0c0c4d5aefb86baa7a00d6ae883bbe",
+    "layout": "strict_complete_objects",
+    "evidence": "terminal-ambient-assets-47510.json"
+  },
+  "root": {
+    "name": "TerminalMixerParamsData",
+    "type": "Audio.AmbientSubsystem.Data.MixerEffectsDataSO"
+  },
+  "reverbMixerData": {
+    "name": "TerminalReverbMixerData",
+    "type": "Audio.AmbientSubsystem.Data.ReverbMixerDataSO",
+    "pathId": 47530,
+    "parameters": [
+      {
+        "field": "reverbVolume",
+        "paramName": "AmbientReverbVolume",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -13.0,
+            -80.0,
+            -3.0999999046325684
+          ]
+        }
+      },
+      {
+        "field": "reverbDryLevel",
+        "paramName": "AmbientReverbDryLevel",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -143.0,
+            -4576.0,
+            -10000.0
+          ]
+        }
+      },
+      {
+        "field": "mix",
+        "paramName": "AmbientReverbMix",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            1090.0,
+            -10000.0,
+            1392.0
+          ]
+        }
+      },
+      {
+        "field": "reverbDelay",
+        "paramName": "AmbientReverbDelay",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.03999999910593033
+          ]
+        }
+      },
+      {
+        "field": "reflectDelay",
+        "paramName": "AmbientReverbReflectDelay",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.15000000596046448,
+            0.019999999552965164,
+            0.1899999976158142
+          ]
+        }
+      },
+      {
+        "field": "reflectMix",
+        "paramName": "AmbientReverbReflectMix",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -1144.0,
+            -9700.0,
+            -1614.0
+          ]
+        }
+      },
+      {
+        "field": "roomSize",
+        "paramName": "AmbientReverbRoomSize",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -1113.0,
+            -10000.0,
+            -704.0
+          ]
+        }
+      },
+      {
+        "field": "decayTime",
+        "paramName": "AmbientReverbDecayTime",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            1.0,
+            1.0,
+            1.100000023841858
+          ]
+        }
+      },
+      {
+        "field": "decayHFRatio",
+        "paramName": "AmbientReverbDecayHFRatio",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.5,
+            0.5,
+            0.4099999964237213
+          ]
+        }
+      },
+      {
+        "field": "roomLowFrequencyGain",
+        "paramName": "AmbientReverbRoomLowFreqGain",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -636.0,
+            -2065.0,
+            -636.0
+          ]
+        }
+      },
+      {
+        "field": "lowFrequencyReference",
+        "paramName": "AmbientReverbLFReference",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            553.0,
+            553.0,
+            359.0
+          ]
+        }
+      },
+      {
+        "field": "roomHighFrequencyGain",
+        "paramName": "AmbientReverbRoomHighFreqGain",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -2655.0,
+            -2655.0,
+            -3822.0
+          ]
+        }
+      },
+      {
+        "field": "highFrequencyReference",
+        "paramName": "AmbientReverbHFReference",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            6960.0,
+            6960.0,
+            10000.0
+          ]
+        }
+      }
+    ],
+    "rawSha256": "cf0c091188c05094ebfd6f5e44b388520cb23f7949829dfc319892396b4b746f"
+  },
+  "delayMixerData": {
+    "name": "TerminalDelayMixerData",
+    "type": "Audio.AmbientSubsystem.Data.DelayMixerDataSO",
+    "pathId": 47526,
+    "parameters": [
+      {
+        "field": "delayVolume",
+        "paramName": "DelayVolume",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -32.0,
+            -30.0,
+            -80.0
+          ]
+        }
+      },
+      {
+        "field": "delay",
+        "paramName": "DelayTime",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            853.0,
+            420.0,
+            500.0
+          ]
+        }
+      },
+      {
+        "field": "decayTime",
+        "paramName": "DelayDecayTime",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.2199999988079071,
+            0.10000000149011612,
+            0.0
+          ]
+        }
+      },
+      {
+        "field": "wetMix",
+        "paramName": "DelayWetmix",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      {
+        "field": "lowpassFilterFreq",
+        "paramName": "DelayLowpassFilterFreq",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            2500.0,
+            2500.0,
+            5100.0
+          ]
+        }
+      }
+    ],
+    "rawSha256": "adda455bc81d48868eb1acdb8c493e89f3d71954a9e4697e874916ccf163ef8c"
+  },
+  "effectsSendsMixerData": {
+    "name": "TerminalEffectsSendsMixerData",
+    "type": "Audio.AmbientSubsystem.Data.GenericVolumeParamsMixerDataSO",
+    "pathId": 47527,
+    "parameters": [
+      {
+        "field": "AmbientOutDelaySend",
+        "paramName": "AmbientOutDelaySend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            -2.4000000953674316
+          ]
+        }
+      },
+      {
+        "field": "AmbientOutReverbSend",
+        "paramName": "AmbientOutReverbSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -5.800000190734863,
+            -80.0,
+            -5.400000095367432
+          ]
+        }
+      },
+      {
+        "field": "AmbCommonEffectsSend",
+        "paramName": "AmbCommonEffectsSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            -14.600000381469727
+          ]
+        }
+      },
+      {
+        "field": "AmbientOutDayEffectsSend",
+        "paramName": "AmbientOutDayEffectsSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "field": "AmbientOutNightEffectsSend",
+        "paramName": "AmbientOutNightEffectsSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            0.0
+          ]
+        }
+      },
+      {
+        "field": "CommonAmbOutEffectsSend",
+        "paramName": "CommonAmbOutEffectsSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            -19.100000381469727
+          ]
+        }
+      },
+      {
+        "field": "CommonAmbInEffectsSend",
+        "paramName": "CommonAmbInEffectsSend",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            0.0,
+            -80.0,
+            -80.0
+          ]
+        }
+      },
+      {
+        "field": "DelayToReverbSendLevel",
+        "paramName": "DelayToReverbSendLevel",
+        "parametersByRoom": {
+          "keys": [
+            "IndoorGeneric",
+            "IndoorIsolated",
+            "Outdoor"
+          ],
+          "values": [
+            -16.0,
+            -80.0,
+            -16.0
+          ]
+        }
+      }
+    ],
+    "rawSha256": "a3234cec1917ebe5237ea70f53ec82212efa510963592759141516fddb04bba6"
+  },
+  "effectsVolumesMixerData": {
+    "name": "TerminalEffectsVolumeMixerData",
+    "type": "Audio.AmbientSubsystem.Data.GenericVolumeParamsMixerDataSO",
+    "pathId": 47528,
+    "parameters": [],
+    "rawSha256": "eb47991e89cbd317b39a837c5bc2e483b17e664b9807a413c01f57c92d5e659d"
+  }
+}

@@ -1,56 +1,74 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalFxBundle
 {
-    // shared handle on terminal_fx.bundle (plugin folder, built by Terminal/Build FX
-    // Bundle in the SDK) — a second LoadFromFile on an already-loaded bundle returns
-    // null, so every consumer (stencil shader, gate audio) goes through here
-    internal static class TerminalFxBundle
-    {
-        private static AssetBundle _bundle;
-        private static bool _tried;
+	private static AssetBundle _bundle;
 
-        internal static AssetBundle Get()
-        {
-            if (_tried) return _bundle;
-            _tried = true;
-            try
-            {
-                var path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "terminal_fx.bundle");
-                if (!System.IO.File.Exists(path))
-                {
-                    Plugin.Log.LogWarning("[FxBundle] terminal_fx.bundle missing — run Terminal/Build FX Bundle in the SDK");
-                    return null;
-                }
-                _bundle = AssetBundle.LoadFromFile(path);
-                if (_bundle == null)
-                    Plugin.Log.LogWarning("[FxBundle] terminal_fx.bundle failed to open");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[FxBundle] load failed: {e.Message}"); }
-            return _bundle;
-        }
+	private static bool _tried;
 
-        // clip lookup: fx bundle first, then anything already loaded (scene bundle,
-        // game banks). cached for the session
-        private static readonly System.Collections.Generic.Dictionary<string, AudioClip> _clips
-            = new System.Collections.Generic.Dictionary<string, AudioClip>();
+	private static readonly Dictionary<string, AudioClip> _clips = new Dictionary<string, AudioClip>();
 
-        internal static AudioClip FindClip(string name)
-        {
-            if (_clips.TryGetValue(name, out var cached) && cached) return cached;
-            var bundle = Get();
-            var clip = bundle != null ? bundle.LoadAsset<AudioClip>(name) : null;
-            if (!clip)
-            {
-                foreach (var c in Resources.FindObjectsOfTypeAll<AudioClip>())
-                    if (c != null && c.name == name) { clip = c; break; }
-            }
-            if (clip) _clips[name] = clip;
-            else Plugin.Log.LogWarning($"[FxBundle] clip '{name}' not found — rebuild Terminal/Build FX Bundle in the SDK");
-            return clip;
-        }
-    }
+	internal static AssetBundle Get()
+	{
+		if (_tried)
+		{
+			return _bundle;
+		}
+		_tried = true;
+		try
+		{
+			string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "terminal_fx.bundle");
+			if (!File.Exists(path))
+			{
+				Plugin.Log.LogWarning("[FxBundle] terminal_fx.bundle missing — run Terminal/Build FX Bundle in the SDK");
+				return null;
+			}
+			_bundle = AssetBundle.LoadFromFile(path);
+			if (_bundle == null)
+			{
+				Plugin.Log.LogWarning("[FxBundle] terminal_fx.bundle failed to open");
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[FxBundle] load failed: " + ex.Message);
+		}
+		return _bundle;
+	}
+
+	internal static AudioClip FindClip(string name)
+	{
+		if (_clips.TryGetValue(name, out var value) && (bool)value)
+		{
+			return value;
+		}
+		AssetBundle assetBundle = Get();
+		AudioClip audioClip = ((assetBundle != null) ? assetBundle.LoadAsset<AudioClip>(name) : null);
+		if (!audioClip)
+		{
+			AudioClip[] array = Resources.FindObjectsOfTypeAll<AudioClip>();
+			foreach (AudioClip audioClip2 in array)
+			{
+				if (audioClip2 != null && audioClip2.name == name)
+				{
+					audioClip = audioClip2;
+					break;
+				}
+			}
+		}
+		if ((bool)audioClip)
+		{
+			_clips[name] = audioClip;
+		}
+		else
+		{
+			Plugin.Log.LogWarning("[FxBundle] clip '" + name + "' not found — rebuild Terminal/Build FX Bundle in the SDK");
+		}
+		return audioClip;
+	}
 }

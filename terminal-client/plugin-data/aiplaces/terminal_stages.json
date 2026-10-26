@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "retailVersion": "1.1.5.47510",
+  "blockOnFirstStage": [
+    {
+      "stage": 1,
+      "zones": [
+        "Zone1ScavMiddleAmbush5",
+        "Zone1BDGateAmbush13",
+        "Zone1ScavHangarStorm14",
+        "Zone1ScavEnterStorm4",
+        "Zone1ScavEnterStorm7",
+        "Zone1VSRF1Spawn3",
+        "Zone1BD1HangarBD11",
+        "Zone1VSRFStoreAmbush10",
+        "Zone1ScavStoreStorm9",
+        "Zone1VSRFSnipeRoofPort2",
+        "Zone1BD1PortAmbush1",
+        "Zone1ScavPortStorm6",
+        "Zone1ScavMiddleAmbush8",
+        "Zone1BD1HangarAmbush11"
+      ]
+    },
+    {
+      "stage": 2,
+      "zones": [
+        "Zone2BDWarehouse18",
+        "Zone2ScavsColumns21",
+        "Zone2VSRFExit33",
+        "Zone2ScavContainers25",
+        "Zone2ScavContainers26",
+        "Zone2VSRFContainers24",
+        "Zone2VSRFColumns22",
+        "Zone2ScavsColumns20",
+        "Zone2BDPort30",
+        "Zone2BDColumns23",
+        "Zone2BDWarehouse19",
+        "Zone2BDPort31",
+        "Zone2BDPort32",
+        "Zone2VSRFPassMiddle15",
+        "Zone2BDPort28",
+        "Zone2ScavContainers17",
+        "Zone2ScavPort29",
+        "Zone2ScavsWarehouse16"
+      ]
+    }
+  ],
+  "migrations": [
+    {
+      "stage": 1,
+      "from": "Zone1ScavMiddleAmbush5",
+      "to": [
+        "Zone2ScavContainers17"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavHangarStorm14",
+      "to": [
+        "Zone2ScavContainers17",
+        "Zone2ScavsWarehouse16"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavEnterStorm4",
+      "to": [
+        "Zone2ScavContainers17"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavEnterStorm7",
+      "to": [
+        "Zone2ScavContainers17",
+        "Zone2ScavsWarehouse16"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavStoreStorm9",
+      "to": [
+        "Zone2ScavContainers17",
+        "Zone2ScavsWarehouse16"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavPortStorm6",
+      "to": [
+        "Zone2ScavContainers17",
+        "Zone2ScavsWarehouse16"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1ScavMiddleAmbush8",
+      "to": [
+        "Zone2ScavContainers17",
+        "Zone2ScavsWarehouse16"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1BDGateAmbush13",
+      "to": [
+        "Zone2BDWarehouse18",
+        "Zone2BDWarehouse19"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1BD1HangarBD11",
+      "to": [
+        "Zone2BDWarehouse18",
+        "Zone2BDWarehouse19"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1BD1PortAmbush1",
+      "to": [
+        "Zone2BDWarehouse18",
+        "Zone2BDWarehouse19"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1BD1HangarAmbush11",
+      "to": [
+        "Zone2BDWarehouse18",
+        "Zone2BDWarehouse19"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1VSRF1Spawn3",
+      "to": [
+        "Zone2VSRFPassMiddle15"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1VSRFStoreAmbush10",
+      "to": [
+        "Zone2VSRFPassMiddle15"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1VSRFSnipeRoofPort2",
+      "to": [
+        "Zone2VSRFPassMiddle15"
+      ]
+    },
+    {
+      "stage": 1,
+      "from": "Zone1BD1HangarBD11",
+      "to": [
+        "Zone2VSRFPassMiddle15"
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "remainPercent": 0.10000000149011612,
+      "minimumCount": 1,
+      "zones": [
+        "Zone1BD1PortAmbush1",
+        "Zone1VSRF1Spawn3",
+        "Zone1ScavEnterStorm4",
+        "Zone1ScavMiddleAmbush5",
+        "Zone1ScavPortStorm6",
+        "Zone1ScavEnterStorm7",
+        "Zone1ScavMiddleAmbush8",
+        "Zone1ScavStoreStorm9",
+        "Zone1VSRFStoreAmbush10",
+        "Zone1BD1HangarAmbush11",
+        "Zone1BDGateAmbush13",
+        "Zone1ScavHangarStorm14",
+        "Zone1VSRFSnipeRoofPort2",
+        "Zone1BD1HangarBD11"
+      ]
+    },
+    {
+      "stage": 2,
+      "remainPercent": 0.10000000149011612,
+      "minimumCount": 1,
+      "zones": [
+        "Zone2VSRFPassMiddle15",
+        "Zone2ScavsWarehouse16",
+        "Zone2ScavContainers17",
+        "Zone2BDWarehouse18",
+        "Zone2BDWarehouse19",
+        "Zone2ScavsColumns20",
+        "Zone2ScavsColumns21",
+        "Zone2VSRFColumns22",
+        "Zone2BDColumns23",
+        "Zone2VSRFContainers24",
+        "Zone2ScavContainers25",
+        "Zone2ScavContainers26",
+        "Zone2BDPort28",
+        "Zone2ScavPort29",
+        "Zone2BDPort30",
+        "Zone2BDPort31",
+        "Zone2CivPump35",
+        "Zone2CivGate36"
+      ]
+    },
+    {
+      "stage": 3,
+      "remainPercent": 0.10000000149011612,
+      "minimumCount": 1,
+      "zones": [
+        "Zone2BDPort32",
+        "Zone2VSRFExit33",
+        "Zone2CivShip34"
+      ]
+    }
+  ]
+}

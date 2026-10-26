@@ -1,70 +1,82 @@
+using System;
 using System.Collections.Generic;
+using JsonType;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalBossRoll
 {
-    // THE BOSS ROLL (user-preferred implementation, 2026-08-18 — replaces the old
-    // parse-time PortBossPool): retail terminal spawns exactly ONE of five bosses
-    // per raid at the container ship berths (Glukhar / Killa / Reshala / Sanitar /
-    // Tagilla). the db ships all five rows on the same zone/trigger with the
-    // live-dump-verified escorts; at location capture we pick one and REMOVE the
-    // rest — array surgery, not chance edits, because the rows carry
-    // ForceSpawn=true which can ignore BossChance.
-    internal static class TerminalBossRoll
-    {
-        private static readonly string[] Candidates =
-            { "bossGluhar", "bossKilla", "bossBully", "bossSanitar", "bossTagilla" };
+	private static readonly string[] Candidates = new string[5] { "bossGluhar", "bossKilla", "bossBully", "bossSanitar", "bossTagilla" };
 
-        internal static void Roll(JsonType.LocationSettings.Location location)
-        {
-            try
-            {
-                var rows = location?.BossLocationSpawn;
-                if (rows == null || rows.Length == 0) return;
-
-                // Terminal authors every population source through this array — not
-                // just named bosses, but assaults, civilians, RUAF and Black Division
-                // event forces too. Emptying it is the earliest and cleanest botless
-                // control; TerminalSpawnGate also blocks runtime calls as a safety net.
-                if (Plugin.DisableAllBots != null && Plugin.DisableAllBots.Value)
-                {
-                    location.BossLocationSpawn = System.Array.Empty<BossLocationSpawn>();
-                    Plugin.Log.LogWarning($"[BotControl] DIAGNOSTIC BOTLESS — removed all {rows.Length} authored boss/event/wave rows");
-                    return;
-                }
-
-                var pool = new List<int>();
-                for (int i = 0; i < rows.Length; i++)
-                {
-                    var n = rows[i]?.BossName;
-                    foreach (var c in Candidates) if (n == c) { pool.Add(i); break; }
-                }
-                if (pool.Count == 0) return;
-
-                // Diagnostic A/B control. Removing the candidate rows is important:
-                // merely skipping Roll would leave all five ForceSpawn rows intact.
-                // Non-Terminal bosses/waves remain untouched, as do the T4 triggers.
-                if (Plugin.TerminalBosses != null && !Plugin.TerminalBosses.Value)
-                {
-                    var withoutBosses = new List<BossLocationSpawn>(rows.Length - pool.Count);
-                    for (int i = 0; i < rows.Length; i++)
-                        if (!pool.Contains(i)) withoutBosses.Add(rows[i]);
-                    location.BossLocationSpawn = withoutBosses.ToArray();
-                    Plugin.Log.LogWarning($"[BossRoll] DIAGNOSTIC CONTROL — removed all {pool.Count} Terminal boss candidates; regular event/T4 waves remain enabled");
-                    return;
-                }
-
-                if (pool.Count == 1) return; // already reduced elsewhere
-                int winner = pool[Random.Range(0, pool.Count)];
-
-                var kept = new List<BossLocationSpawn>(rows.Length);
-                for (int i = 0; i < rows.Length; i++)
-                    if (i == winner || !pool.Contains(i)) kept.Add(rows[i]);
-                location.BossLocationSpawn = kept.ToArray();
-                Plugin.Log.LogInfo($"[BossRoll] {pool.Count} candidates -> '{rows[winner].BossName}' "
-                    + $"(escort {rows[winner].BossEscortAmount}x {rows[winner].BossEscortType}) spawns this raid");
-            }
-            catch (System.Exception e) { Plugin.Log.LogWarning($"[BossRoll] failed: {e.Message}"); }
-        }
-    }
+	internal static void Roll(LocationSettings.Location location)
+	{
+		try
+		{
+			BossLocationSpawn[] array = location?.BossLocationSpawn;
+			if (array == null || array.Length == 0)
+			{
+				return;
+			}
+			if (Plugin.DisableAllBots != null && Plugin.DisableAllBots.Value)
+			{
+				location.BossLocationSpawn = Array.Empty<BossLocationSpawn>();
+				Plugin.Log.LogWarning($"[BotControl] DIAGNOSTIC BOTLESS — removed all {array.Length} authored boss/event/wave rows");
+				return;
+			}
+			List<int> list = new List<int>();
+			for (int i = 0; i < array.Length; i++)
+			{
+				string text = array[i]?.BossName;
+				string[] candidates = Candidates;
+				foreach (string text2 in candidates)
+				{
+					if (text == text2)
+					{
+						list.Add(i);
+						break;
+					}
+				}
+			}
+			if (list.Count == 0)
+			{
+				return;
+			}
+			if (Plugin.TerminalBosses != null && !Plugin.TerminalBosses.Value)
+			{
+				List<BossLocationSpawn> list2 = new List<BossLocationSpawn>(array.Length - list.Count);
+				for (int k = 0; k < array.Length; k++)
+				{
+					if (!list.Contains(k))
+					{
+						list2.Add(array[k]);
+					}
+				}
+				location.BossLocationSpawn = list2.ToArray();
+				Plugin.Log.LogWarning($"[BossRoll] DIAGNOSTIC CONTROL — removed all {list.Count} Terminal boss candidates; regular event/T4 waves remain enabled");
+			}
+			else
+			{
+				if (list.Count == 1)
+				{
+					return;
+				}
+				int num = list[UnityEngine.Random.Range(0, list.Count)];
+				List<BossLocationSpawn> list3 = new List<BossLocationSpawn>(array.Length);
+				for (int l = 0; l < array.Length; l++)
+				{
+					if (l == num || !list.Contains(l))
+					{
+						list3.Add(array[l]);
+					}
+				}
+				location.BossLocationSpawn = list3.ToArray();
+				Plugin.Log.LogInfo($"[BossRoll] {list.Count} candidates -> '{array[num].BossName}' " + "(escort " + array[num].BossEscortAmount + "x " + array[num].BossEscortType + ") spawns this raid");
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[BossRoll] failed: " + ex.Message);
+		}
+	}
 }

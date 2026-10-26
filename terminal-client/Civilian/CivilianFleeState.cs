@@ -2,55 +2,72 @@ using System.Collections.Generic;
 using EFT;
 using UnityEngine;
 
-namespace Manimal.Terminal.Civilian
+namespace Manimal.Terminal.Civilian;
+
+internal static class CivilianFleeState
 {
-    // shared state between CivilianFleeLayer and CivilianFleeLogic — BigBrain
-    // instantiates layer and logic as separate unlinked objects, so per-bot flee
-    // state parks in a static dict keyed by profile id. ClearAll per raid or the
-    // dict leaks across raids (MitsuruMod never called it — ported fix).
-    internal static class CivilianFleeState
-    {
-        public sealed class State
-        {
-            public float LastThreatSeenAt = -999f;
-            // Time.time when post-hide cowering ends; while > now the layer stays
-            // active and does NOT scan — frozen in hiding
-            public float CoweringUntil;
-            public bool InCover;
+	public sealed class State
+	{
+		public float LastThreatSeenAt = -999f;
 
-            // spawn-point tether for wander/flee clamping
-            public Vector3 HomePosition;
-            public bool HasHome;
+		public float CoweringUntil;
 
-            // stamped by GunshotHearingPatch — gunfire panics through walls
-            public float LastGunshotAt = -999f;
-            public Vector3 LastGunshotPos;
-        }
+		public bool InCover;
 
-        private static readonly Dictionary<string, State> States = new Dictionary<string, State>();
+		public Vector3 HomePosition;
 
-        public static State Get(BotOwner owner)
-        {
-            var id = owner?.Profile?.Id;
-            if (string.IsNullOrEmpty(id)) return new State();
-            if (!States.TryGetValue(id, out var s))
-            {
-                s = new State();
-                States[id] = s;
-            }
-            return s;
-        }
+		public bool HasHome;
 
-        public static void ClearAll() => States.Clear();
+		public float LastGunshotAt = -999f;
 
-        // records the spawn point as home; idempotent
-        public static void EnsureHomeInitialized(BotOwner owner)
-        {
-            if (owner == null) return;
-            var s = Get(owner);
-            if (s.HasHome) return;
-            s.HomePosition = owner.Position;
-            s.HasHome = true;
-        }
-    }
+		public Vector3 LastGunshotPos;
+
+		public bool MotionRequested;
+	}
+
+	private static readonly Dictionary<string, State> States = new Dictionary<string, State>();
+
+	public static State Get(BotOwner owner)
+	{
+		string text = owner?.Profile?.Id;
+		if (string.IsNullOrEmpty(text))
+		{
+			return new State();
+		}
+		if (!States.TryGetValue(text, out var value))
+		{
+			value = new State();
+			States[text] = value;
+		}
+		return value;
+	}
+
+	public static bool TryGet(BotOwner owner, out State state)
+	{
+		string text = owner?.Profile?.Id;
+		if (string.IsNullOrEmpty(text))
+		{
+			state = null;
+			return false;
+		}
+		return States.TryGetValue(text, out state);
+	}
+
+	public static void ClearAll()
+	{
+		States.Clear();
+	}
+
+	public static void EnsureHomeInitialized(BotOwner owner)
+	{
+		if (!(owner == null))
+		{
+			State state = Get(owner);
+			if (!state.HasHome)
+			{
+				state.HomePosition = owner.Position;
+				state.HasHome = true;
+			}
+		}
+	}
 }

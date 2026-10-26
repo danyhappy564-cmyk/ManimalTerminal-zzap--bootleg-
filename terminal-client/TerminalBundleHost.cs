@@ -1,149 +1,198 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.Serialization;
+using Comfort.Common;
+using EFT.AssetsManager;
 using HarmonyLib;
+using SPT.Reflection.Patching;
 using UnityEngine;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalBundleHost
 {
-    // SERVES OUR BUNDLES STRAIGHT OUT OF THE PLUGIN FOLDER — nothing is ever written
-    // into EscapeFromTarkov_Data. 1:1 port of IcebreakerBundleHost.
-    //
-    // how it works, from EFT.AssetsManager.BundlesManager.BundleLoadOperation.smethod_0: the loaded-bundle
-    // dictionary is checked FIRST, and only a miss falls through to a URL fetch (the
-    // route that 404'd on the SPT manifest attempt). so we load the file ourselves
-    // with AssetBundle.LoadFromFile (memory-mapped — a multi-GB bundle costs a
-    // fraction of copying it) and insert it under the key the game is about to ask
-    // for. the scene itself then loads BY NAME (SceneManager.LoadSceneAsync), which
-    // works for any loaded bundle — no manifest entry needed.
-    internal static class TerminalBundleHost
-    {
-        // payload root: BepInEx/plugins/ManimalTerminal/streamingassets/Windows/<key>
-        private const string PayloadDir = "streamingassets";
-        private const string Platform = "Windows";
+	private sealed class FailedBundleOperation : Operation<AssetBundle>
+	{
+		internal FailedBundleOperation(string error)
+		{
+			Error = error;
+		}
+	}
 
-        private static Dictionary<string, string> _ours;   // bundle key -> absolute file path
-        // loaded once, but registered under EVERY spelling the game asks for:
-        // LoadAssetAsync lowercases the name while LoadScene passes it through raw
-        private static readonly Dictionary<string, AssetBundle> _loaded =
-            new Dictionary<string, AssetBundle>(StringComparer.OrdinalIgnoreCase);
+	internal sealed class LoadBundlePatch : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(BundlesManager), "LoadBundleAsync");
+		}
 
-        private static Type _entryType;
-        private static FieldInfo _loadedDict;
+		[PatchPrefix]
+		private static bool Prefix(BundlesManager __instance, string bundleName, ref IOperation<AssetBundle> __result)
+		{
+			return BeforeLoadBundle(__instance, bundleName, ref __result);
+		}
+	}
 
-        internal static void Init(Harmony harmony)
-        {
-            try
-            {
-                _ours = ScanPayload();
-                if (_ours.Count == 0)
-                {
-                    Plugin.Log.LogDebug($"[Bundles] no payload under {PayloadDir}/{Platform} — map bundles unavailable");
-                    return;
-                }
+	private const string PayloadDir = "streamingassets";
 
-                _entryType = AccessTools.Inner(typeof(EFT.AssetsManager.BundlesManager), "AssetBundleReference");
-                _loadedDict = AccessTools.Field(typeof(EFT.AssetsManager.BundlesManager), "_bundles");
-                if (_entryType == null || _loadedDict == null)
-                {
-                    Plugin.Log.LogError("[Bundles] EFT.AssetsManager.BundlesManager layout changed — cannot host bundles from the plugin folder");
-                    return;
-                }
+	private const string Platform = "Windows";
 
-                harmony.Patch(
-                    AccessTools.Method(typeof(EFT.AssetsManager.BundlesManager), nameof(EFT.AssetsManager.BundlesManager.LoadBundleAsync)),
-                    prefix: new HarmonyMethod(typeof(TerminalBundleHost), nameof(BeforeLoadBundle)));
+	private static Dictionary<string, string> _ours;
 
-                Plugin.Log.LogInfo($"[Bundles] hosting {_ours.Count} bundle(s) from the plugin folder: " +
-                                   string.Join(", ", new List<string>(_ours.Keys).ToArray()));
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError($"[Bundles] host init failed: {e}");
-            }
-        }
+	private static readonly Dictionary<string, AssetBundle> _loaded = new Dictionary<string, AssetBundle>(StringComparer.OrdinalIgnoreCase);
 
-        // every file under streamingassets/Windows becomes a key by its relative path —
-        // lowercase with forward slashes, the form the game asks for
-        private static Dictionary<string, string> ScanPayload()
-        {
-            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var root = Path.Combine(
-                Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                PayloadDir, Platform);
-            if (!Directory.Exists(root)) return map;
-            foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
-            {
-                if (file.EndsWith(".manifest", StringComparison.OrdinalIgnoreCase)) continue;
-                var key = file.Substring(root.Length + 1).Replace('\\', '/').ToLowerInvariant();
-                map[key] = file;
-            }
-            return map;
-        }
+	private static Type _entryType;
 
-        // the cache entry decompiles as a public .ctor(AssetBundle) but the real IL may
-        // not present that signature — bind explicitly, else build without a ctor and
-        // write fields by TYPE (AssetBundle + the int refcount)
-        private static object CreateEntry(AssetBundle bundle)
-        {
-            try
-            {
-                var ctor = AccessTools.Constructor(_entryType, new[] { typeof(AssetBundle) });
-                if (ctor != null) return ctor.Invoke(new object[] { bundle });
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Bundles] entry ctor failed ({e.Message}) — falling back to field init"); }
+	private static FieldInfo _loadedDict;
 
-            try
-            {
-                var inst = System.Runtime.Serialization.FormatterServices.GetUninitializedObject(_entryType);
-                foreach (var f in _entryType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                {
-                    if (f.FieldType == typeof(AssetBundle)) f.SetValue(inst, bundle);
-                    else if (f.FieldType == typeof(int)) f.SetValue(inst, 1);   // refcount starts at 1
-                }
-                return inst;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError($"[Bundles] could not build a cache entry: {e.Message}");
-                return null;
-            }
-        }
+	internal static void Init()
+	{
+		try
+		{
+			_ours = ScanPayload();
+			if (_ours.Count == 0)
+			{
+				Plugin.Log.LogDebug("[Bundles] no payload under streamingassets/Windows — map bundles unavailable");
+				return;
+			}
+			_entryType = AccessTools.Inner(typeof(BundlesManager), "AssetBundleReference");
+			_loadedDict = AccessTools.Field(typeof(BundlesManager), "_bundles");
+			if (_entryType == null || _loadedDict == null)
+			{
+				Plugin.Log.LogError("[Bundles] EFT.AssetsManager.BundlesManager layout changed — cannot host bundles from the plugin folder");
+				return;
+			}
+			new LoadBundlePatch().Enable();
+			foreach (string value in _ours.Values)
+			{
+				TerminalNativeAssets.Prepare(value, Application.dataPath);
+			}
+			Plugin.Log.LogInfo($"[Bundles] hosting {_ours.Count} bundle(s) from the plugin folder: " + string.Join(", ", new List<string>(_ours.Keys).ToArray()));
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogError($"[Bundles] host init failed: {arg}");
+		}
+	}
 
-        private static void BeforeLoadBundle(EFT.AssetsManager.BundlesManager __instance, string bundleName)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(bundleName)) return;
-                var key = bundleName.Replace('\\', '/').ToLowerInvariant();
-                if (!_ours.TryGetValue(key, out var file)) return;
+	private static Dictionary<string, string> ScanPayload()
+	{
+		Dictionary<string, string> dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		string text = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "streamingassets", "Windows");
+		if (!Directory.Exists(text))
+		{
+			return dictionary;
+		}
+		string[] files = Directory.GetFiles(text, "*", SearchOption.AllDirectories);
+		foreach (string text2 in files)
+		{
+			if (text2.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase) && !TerminalNativeAssets.IsNativeBundle(text2))
+			{
+				string key = text2.Substring(text.Length + 1).Replace('\\', '/').ToLowerInvariant();
+				dictionary[key] = text2;
+			}
+		}
+		files = Directory.GetFiles(text, "*", SearchOption.AllDirectories);
+		foreach (string text3 in files)
+		{
+			if (TerminalNativeAssets.IsNativeBundle(text3))
+			{
+				string text4 = text3.Substring(text.Length + 1).Replace('\\', '/').ToLowerInvariant();
+				text4 = text4.Substring(0, text4.Length - ".native.bundle".Length) + ".bundle";
+				dictionary[text4] = text3;
+			}
+		}
+		return dictionary;
+	}
 
-                var dict = _loadedDict.GetValue(__instance) as System.Collections.IDictionary;
-                if (dict == null) return;
-                if (dict.Contains(bundleName)) return;      // this exact spelling is served
+	private static object CreateEntry(AssetBundle bundle)
+	{
+		try
+		{
+			ConstructorInfo constructorInfo = AccessTools.Constructor(_entryType, new Type[1] { typeof(AssetBundle) });
+			if (constructorInfo != null)
+			{
+				return constructorInfo.Invoke(new object[1] { bundle });
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Bundles] entry ctor failed (" + ex.Message + ") — falling back to field init");
+		}
+		try
+		{
+			object uninitializedObject = FormatterServices.GetUninitializedObject(_entryType);
+			FieldInfo[] fields = _entryType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			foreach (FieldInfo fieldInfo in fields)
+			{
+				if (fieldInfo.FieldType == typeof(AssetBundle))
+				{
+					fieldInfo.SetValue(uninitializedObject, bundle);
+				}
+				else if (fieldInfo.FieldType == typeof(int))
+				{
+					fieldInfo.SetValue(uninitializedObject, 1);
+				}
+			}
+			return uninitializedObject;
+		}
+		catch (Exception ex2)
+		{
+			Plugin.Log.LogError("[Bundles] could not build a cache entry: " + ex2.Message);
+			return null;
+		}
+	}
 
-                if (!_loaded.TryGetValue(key, out var bundle) || bundle == null)
-                {
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    bundle = AssetBundle.LoadFromFile(file);
-                    if (bundle == null)
-                    {
-                        Plugin.Log.LogError($"[Bundles] '{key}' failed to load from {file}");
-                        return;
-                    }
-                    _loaded[key] = bundle;
-                    Plugin.Log.LogDebug($"[Bundles] loaded '{key}' from the plugin folder in {sw.ElapsedMilliseconds}ms");
-                }
-                var entry = CreateEntry(bundle);
-                if (entry == null) return;
-                dict[bundleName] = entry;
-            }
-            catch (Exception e)
-            {
-                // fall through to the game's own loader rather than break the raid
-                Plugin.Log.LogError($"[Bundles] serve failed for '{bundleName}': {e.Message}");
-            }
-        }
-    }
+	private static bool BeforeLoadBundle(BundlesManager __instance, string bundleName, ref IOperation<AssetBundle> result)
+	{
+		try
+		{
+			if (string.IsNullOrEmpty(bundleName))
+			{
+				return true;
+			}
+			string text = bundleName.Replace('\\', '/').ToLowerInvariant();
+			if (!_ours.TryGetValue(text, out var value))
+			{
+				return true;
+			}
+			TerminalNativeAssets.RequireVerified(value, Application.dataPath);
+			if (!(_loadedDict.GetValue(__instance) is IDictionary dictionary))
+			{
+				throw new InvalidOperationException("Terminal bundle cache is unavailable");
+			}
+			if (dictionary.Contains(bundleName))
+			{
+				return true;
+			}
+			if (!_loaded.TryGetValue(text, out var value2) || value2 == null)
+			{
+				Stopwatch stopwatch = Stopwatch.StartNew();
+				value2 = AssetBundle.LoadFromFile(value);
+				if (value2 == null)
+				{
+					throw new InvalidDataException("[Bundles] '" + text + "' failed to load from " + value);
+				}
+				_loaded[text] = value2;
+				Plugin.Log.LogDebug($"[Bundles] loaded '{text}' from the plugin folder in {stopwatch.ElapsedMilliseconds}ms");
+			}
+			object obj = CreateEntry(value2);
+			if (obj == null)
+			{
+				throw new InvalidOperationException("Terminal bundle cache entry could not be created");
+			}
+			dictionary[bundleName] = obj;
+			return true;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogError("[Bundles] serve failed for '" + bundleName + "': " + ex.Message);
+			result = new FailedBundleOperation(ex.Message);
+			return false;
+		}
+	}
 }

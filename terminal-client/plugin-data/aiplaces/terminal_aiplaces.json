@@ -52,7 +52,7 @@
      "EventName": "TB8",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -68,7 +68,7 @@
      "EventName": "TB2",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -84,7 +84,7 @@
      "EventName": "T5",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -100,7 +100,7 @@
      "EventName": "TB4",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -116,7 +116,7 @@
      "EventName": "TB3",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -132,7 +132,7 @@
      "EventName": "TB7",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -148,7 +148,7 @@
      "EventName": "TB1",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -164,7 +164,7 @@
      "EventName": "T1",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -180,7 +180,7 @@
      "EventName": "T3",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -196,7 +196,7 @@
      "EventName": "T4",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -212,7 +212,7 @@
      "EventName": "TB5",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -228,7 +228,7 @@
      "EventName": "T4",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -244,7 +244,7 @@
      "EventName": "T2",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -260,7 +260,7 @@
      "EventName": "T0",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -276,7 +276,7 @@
      "EventName": "Waaagh",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    },
    {
@@ -292,7 +292,7 @@
      "EventName": "T0",
      "EnterRaise": 1,
      "ExitRaise": 0,
-     "retailExtra_0": 1
+     "OnlyPlayerNotAI": 1
     }
    }
   ],
@@ -383,7 +383,10 @@
       "ref": 8306
      },
      "CoversSpecial": 0,
-     "retailExtra_0": 30,
+     "BlackDivisionPossibleZones": [
+      "Zone1BD1HangarBD11"
+     ],
+     "ConnectionGroupId": 30,
      "UseAsCoverGroupId": 1
     }
    },

@@ -1,31 +1,65 @@
-# ManimalTerminal
+# ManimalTerminal (zzap 부트렉)
 
-Backport of the retail Escape from Tarkov **Terminal** map into **SPT 4.1** —
-scene restore, component recovery, and gameplay fixup, following the approach
-proven on [ManimalIcebreaker](../ManimalIcebreaker).
+---
 
-- `terminal-client/` — BepInEx client plugin (`Manimal-Terminal`)
-- `terminal-server/` — SPT server mod (binds the native Terminal location slot)
-- `terminal-fika/` — optional Fika sync addon for playing and headless hosts;
-  [installation and multiplayer test checklist](docs/FIKA-SYNC.md)
-- `docs/` — the map-backport playbook + working-notes snapshots
+### ⚠️ IMPORTANT NOTICE / DISCLAIMER
 
-Native integration work: [parity audit, recovered authoring and verification](docs/TERMINAL-PARITY.md).
+- **Original Author:** Manimal (danauraborealis)
+- **Original Repository:** ManimalTerminal
+- **Original Link:** https://github.com/danauraborealis/ManimalTerminal
+- **License:** MIT
 
-Source code: [danauraborealis/ManimalTerminal](https://github.com/danauraborealis/ManimalTerminal).
+1. **Reflection & Take-Downs:** I deeply reflect on the ECOT incident. As an AI-assisted "vibe coder," I will immediately delete files if the original authors ask.
+2. **No Re-Distribution:** These ported builds are unverified, temporary fixes. Please do NOT re-upload or share them anywhere else.
+3. **Do Not Pester Original Authors:** Never report bugs or pester original modders regarding issues from my unofficial ports.
+4. **Full Credit & Respect:** I will always credit original creators on GitHub and prioritize their decisions above all else.
+5. **Support Original Creators:** Instead of using my ports, please visit the original authors' Forge pages to leave kind words or tips.
 
-Version **0.2.2** targets SPT 4.1; compiled against SPT 4.1.5.
-The client, server, civilian prepatcher and optional Fika addon are included in
-the solution. See [4.1 installation, build commands and verification](docs/SPT-4.1-PORT.md).
+---
 
-Extract the full `Manimal-Terminal-SPT-4.1-0.2.2.zip` over your SPT 4.1 game root.
-For Fika, also install the matching Fika addon on every playing and headless client.
-Install archives contain runtime files only. Builds do not deploy automatically.
+## 변경 이력
 
-For Forge, use GUID `com.manimal.terminal`, client name `Manimal-Terminal`,
-and version `0.2.2`; the server declares the same GUID and version with name
-`ManimalTerminal` and author `Manimal`. The optional client addon has its own
-GUID `com.manimal.terminal.fika` and name `Manimal-TerminalFika`.
-Publish the matching release source to the repository above and include that
-link on the Forge listing. Upload the full compiled package for new installs;
-the update and binaries archives require an existing installation.
+- 2026-10-26 20:08 — 기준 소스를 원작 릴리즈 0.2.20으로 바꿈. 원작자가 깃허브에 올린 소스(0.2.2, 9월 12일)보다 실제 배포된 0.2.20(10월 16일)이 훨씬 앞서 있었습니다. 새 파일 36개·바뀐 파일 57개(전투 연출, 블랙디비전 로직, 봇 이동, 임무 날씨, 계절 음향 등) 차이가 있어, 깃허브 소스로 고치면 최신 기능이 사라지는 상태였습니다. 그래서 릴리즈 DLL을 디컴파일(소스로 되돌리기)해서 클라이언트 소스를 통째로 교체했습니다. 다시 빌드한 DLL을 또 디컴파일해 원본과 비교하면 같은 코드가 나옵니다(조건 순서 같은 표현 차이만). 서버는 바뀐 곳이 한 군데(같은 경호원이 두 번 스폰되지 않게 웨이브 인원 정리)뿐이라 원작 주석이 있는 소스에 그 부분만 옮겼습니다. 코드가 읽는 데이터 JSON 8개도 릴리즈와 맞췄습니다. 게임 동작은 원본 0.2.20과 같아야 합니다(인게임 미확인).
+
+## 소개
+
+리테일 타르코프의 **터미널** 맵을 SPT 4.1로 옮겨 오는 원작 모드(Manimal)의 비공식 포크입니다.
+이 포크의 목표는 **프레임 최적화**와 **다른 모드와의 호환**입니다.
+
+| 폴더 | 내용 |
+|---|---|
+| `terminal-client/` | BepInEx 클라이언트 플러그인 (`Manimal-Terminal`) |
+| `terminal-server/` | SPT 서버 모드 (터미널 맵 자리를 채움) |
+| `terminal-prepatch/` | 민간인 봇 종류를 등록하는 사전 패치 |
+| `terminal-fika/` | Fika용 부가 모드 (0.2.2 소스 그대로 — 0.2.20 기준 빌드 미확인) |
+
+## 클라이언트 소스에 대해
+
+- `terminal-client/`의 .cs 파일은 릴리즈 0.2.20 DLL을 ILSpy로 디컴파일한 것이라 **원작 주석이 없습니다.**
+  원작 주석이 필요하면 이 저장소 이력에서 0.2.2 시절 파일(커밋 `1d45c1c`)을 참고하세요.
+- 0.2.20 클라이언트는 **ZLinq 1.5.3**을 씁니다. 게임에서는 `BepInEx/plugins/UnityToolkit/ZLinq.dll`(WTT 쪽 UnityToolkit)이 제공합니다.
+
+## 필요한 모드
+
+클라이언트: WTT-ClientCommonLib, WTT-ContentBackport, BigBrain, MoreBotsAPI, Black Division, UnityToolkit(ZLinq)
+서버: WTT-CommonLib ^3.0.6, WTT-ContentBackport ^2.0.1, Black Division, MoreBotsAPI ≥2.1.1, **RUAF Come Home ≥1.1.0**
+
+## 설치
+
+1. 원작 릴리즈 `Manimal-Terminal-SPT-4.1-0.2.20` 전체(맵 번들 약 4GB 포함)를 게임 폴더에 먼저 설치합니다.
+2. 이 포크의 빌드는 그 위에 `BepInEx/plugins/ManimalTerminal/ManimalTerminalClient.dll`(필요하면 서버 `terminal-server.dll`도)만 덮어씁니다.
+
+맵 번들과 큰 음향 파일(계절 음향 WAV 등)은 용량 때문에 저장소에 넣지 않았습니다.
+
+## 빌드
+
+```
+dotnet build terminal-client/terminal-client.csproj -c Release
+dotnet build terminal-server/terminal-server.csproj -c Release
+```
+
+게임 경로는 `Directory.Build.props`의 `SPTPath`(기본 `E:\SPT 4.1`)입니다. 빌드는 게임 폴더에 자동으로 복사하지 않습니다(`SkipDeploy=true`).
+
+## 라이선스
+
+원작과 같이 MIT입니다(`LICENSE`).

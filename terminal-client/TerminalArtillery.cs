@@ -1,248 +1,460 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using Comfort.Common;
+using CommonAssets.Scripts.ArtilleryShelling;
 using EFT;
+using EFT.GameTriggers;
+using EFT.GlobalEvents;
+using EFT.GlobalEvents.ArtilleryShellingEcents;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
+using SPT.Reflection.Patching;
 using UnityEngine;
+using ZLinq;
+using ZLinq.Linq;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalArtillery
 {
-    // THE ARTILLERY BARRAGE (ArtilleryTriggers, level628): four authored trigger
-    // boxes, each with a native TriggerZone (artillery_trigger_1..4) plus a
-    // 1.0-only ArtilleryChangeTriggerHandler. 4.0 SHIPS the full shelling system
-    // (ArtilleryShellingControllerServer + client FX/audio — the Streets mortar event)
-    // gated on ArtilleryMapsConfigs containing the location id, so:
-    //  - InjectConfig (at location capture, BEFORE BaseLocalGame checks) plants a
-    //    Terminal map config built from terminal_artillery.json — 4 shelling zones
-    //    centered on the authored trigger boxes, guns as an offshore battery
-    //  - TryStage resurrects the TriggerZones; entering one emits its trigger and
-    //    we call StartImmediateShellingZone on that zone: 10s warning whistle,
-    //    then the barrage walks the area you're in. run.
-    internal static class TerminalArtillery
-    {
-        private static bool _staged;
-        private static bool _injected;
+	internal sealed class UpdateOncePatch : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(ArtilleryShellingControllerServer), "OnUpdate");
+		}
 
-        private static readonly HashSet<string> NativeSet = new HashSet<string> { "TriggerZone" };
+		[PatchPrefix]
+		private static bool Prefix(ArtilleryShellingControllerServer __instance)
+		{
+			if (!TerminalGate.On || !TerminalCoop.Authority || !Plugin.Artillery.Value)
+			{
+				return true;
+			}
+			if (_lastUpdatedController == __instance && _lastUpdatedFrame == Time.frameCount)
+			{
+				return false;
+			}
+			_lastUpdatedController = __instance;
+			_lastUpdatedFrame = Time.frameCount;
+			try
+			{
+				ApplyPendingZoneChanges(__instance);
+			}
+			catch (Exception arg)
+			{
+				Plugin.Log.LogError($"[Artillery] zone transition failed; native projectile update retained: {arg}");
+			}
+			return true;
+		}
+	}
 
-        internal static void ResetForRaid()
-        {
-            _staged = false;
-            _pumpUntil = -1f;
-            _stopped = true;
-            // config injection persists across raids by design — the dict entry
-            // survives and BaseLocalGame re-checks it every game creation
-        }
+	internal sealed class GeometryPatch : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(ArtilleryShellingControllerServer), "GetShootFinalPointByGeometry");
+		}
 
-        // must run BEFORE BaseLocalGame.method_4's ArtilleryMapsConfigs check —
-        // called from the location-capture prefix, only for Terminal raids
-        internal static void InjectConfig()
-        {
-            if (_injected || !Plugin.Artillery.Value) return;
-            try
-            {
-                var path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "plugin-data", "terminal_artillery.json");
-                if (!System.IO.File.Exists(path))
-                {
-                    Plugin.Log.LogWarning("[Artillery] terminal_artillery.json missing — no barrage");
-                    _injected = true;
-                    return;
-                }
-                var cfgJson = JObject.Parse(System.IO.File.ReadAllText(path));
+		[PatchPrefix]
+		private static bool Prefix(Vector3 __0, ref Vector3 __1, ref bool __result)
+		{
+			if (!TerminalGate.On || !TerminalCoop.Authority || !Plugin.Artillery.Value)
+			{
+				return true;
+			}
+			Vector3 origin = new Vector3(__0.x, 300f, __0.z);
+			__result = Physics.Raycast(origin, Vector3.down, out var hitInfo, 1000f, EFTHardSettings.Instance.MOVEMENT_MASK);
+			__1 = (__result ? hitInfo.point : Vector3.zero);
+			return false;
+		}
+	}
 
-                var backend = Singleton<EFT.GlobalConfiguration>.Instance;
-                var shelling = backend != null ? backend.ArtilleryShelling : null;
-                if (shelling == null || shelling.ArtilleryMapsConfigs == null)
-                {
-                    Plugin.Log.LogWarning("[Artillery] backend ArtilleryShelling config absent — no barrage");
-                    return; // retry next raid, backend may not be up yet
-                }
+	internal sealed class RetiredProjectilePatch : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(ArtilleryShellingControllerServer), "PushExplosionEvents");
+		}
 
-                var cfgType = AccessTools.TypeByName("CommonAssets.Scripts.ArtilleryShelling.ArtilleryShellingMapConfiguration")
-                    ?? AccessTools.TypeByName("ArtilleryShellingMapConfiguration");
-                if (cfgType == null) { Plugin.Log.LogWarning("[Artillery] map-config type missing"); _injected = true; return; }
-                object cfg = Activator.CreateInstance(cfgType);
-                TerminalRigFill.FillObject(cfg, cfgJson, new Dictionary<string, Transform>());
+		[PatchPrefix]
+		private static bool Prefix(ArtilleryShellingControllerServer __instance, ArtilleryProjectileServer serverProjectile)
+		{
+			//IL_0040: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0063: Unknown result type (might be due to invalid IL or missing references)
+			if (!TerminalGate.On || !TerminalCoop.Authority || !Plugin.Artillery.Value || !ZoneAdapterEnabled)
+			{
+				return true;
+			}
+			string id = serverProjectile.zoneID;
+			if (ValueEnumerableExtensions.Any<FromEnumerable<ArtilleryShellingZone>, ArtilleryShellingZone>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>((IEnumerable<ArtilleryShellingZone>)__instance.dictionary_0.Keys), (Func<ArtilleryShellingZone, bool>)((ArtilleryShellingZone z) => z.ID == id)) || ValueEnumerableExtensions.Any<FromEnumerable<ArtilleryShellingZone>, ArtilleryShellingZone>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>((IEnumerable<ArtilleryShellingZone>)__instance._zonesInEventShelling.Keys), (Func<ArtilleryShellingZone, bool>)((ArtilleryShellingZone z) => z.ID == id)) || !KnownZones.TryGetValue(id, out var value))
+			{
+				return true;
+			}
+			float safeMaxZoneRadius = __instance.GetSafeMaxZoneRadius(__instance.GetMaxZoneSide(value));
+			GlobalEventsController.CreateEvent<ShellingProjectileExplosionEvent>().Invoke(id, safeMaxZoneRadius, value.Center);
+			if (serverProjectile.firstInRoundForZone)
+			{
+				GlobalEventsController.CreateEvent<FirstShellingExplosionInRoundEvent>().Invoke(id, safeMaxZoneRadius, value.Center);
+				__instance.method_2();
+			}
+			if (serverProjectile.lastInRoundForZone)
+			{
+				GlobalEventsController.CreateEvent<LastShellingExplosionInRoundEvent>().Invoke(id, safeMaxZoneRadius, value.Center);
+				__instance.method_2();
+			}
+			if (serverProjectile.firstInShellingForZone)
+			{
+				GlobalEventsController.CreateEvent<FirstShellingExplosionZoneEvent>().Invoke(id, safeMaxZoneRadius, value.Center);
+				__instance.method_2();
+			}
+			if (serverProjectile.lastInShellingForZone)
+			{
+				GlobalEventsController.CreateEvent<LastShellingExplosionZoneEvent>().Invoke(id, safeMaxZoneRadius, value.Center);
+				__instance.method_2();
+			}
+			return false;
+		}
+	}
 
-                var dict = (System.Collections.IDictionary)shelling.ArtilleryMapsConfigs;
-                dict["Terminal"] = cfg;
-                _injected = true;
-                Plugin.Log.LogInfo("[Artillery] Terminal shelling config injected — native controllers will arm at game start");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Artillery] config inject failed: {e}"); }
-        }
+	internal sealed class PlannedZonesPatch : ModulePatch
+	{
+		protected override MethodBase GetTargetMethod()
+		{
+			return AccessTools.Method(typeof(ArtilleryShellingControllerServer), "ShellingZones");
+		}
 
-        // NOBODY pumps ServerShellingController.OnUpdate in the offline game path
-        // (proved 2026-08-18: zones tripped, countdown ran, TargetShellingOn set —
-        // and the firing loop never executed). we are the pump — but a BOUNDED one:
-        // pumping forever left the controller grinding accumulated shelling state all
-        // raid (A/B-proved 2026-08-18: the endgame 36ms chop died with artillery off).
-        // pump only through a barrage window after a trip, then StopShelling and idle.
-        private const float BarrageWindow = 60f; // 10s whistle + the barrage; user-tuned 2026-08-18
-        private static float _pumpUntil = -1f;
-        private static bool _stopped = true;
+		[PatchPostfix]
+		private static void Postfix(ref IEnumerable<ArtilleryShellingZone> __result)
+		{
+			//IL_0025: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0049: Unknown result type (might be due to invalid IL or missing references)
+			if (TerminalGate.On && TerminalCoop.Authority && Plugin.Artillery.Value && _zonePolicy != null)
+			{
+				__result = ValueEnumerableExtensions.ToArray<FromEnumerable<ArtilleryShellingZone>, ArtilleryShellingZone>(ValueEnumerableExtensions.Where<FromEnumerable<ArtilleryShellingZone>, ArtilleryShellingZone>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>(__result), (Func<ArtilleryShellingZone, bool>)((ArtilleryShellingZone z) => _zonePolicy.Contains(z.ID))));
+			}
+		}
+	}
 
-        internal static void Pump()
-        {
-            if (!Plugin.Artillery.Value || !TerminalGate.On) return;
-            try
-            {
-                var gw = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
-                var ctrl = gw?.ServerShellingController;
-                if (ctrl == null) return;
-                if (Time.realtimeSinceStartup < _pumpUntil)
-                {
-                    ctrl.OnUpdate();
-                    _stopped = false;
-                }
-                else if (!_stopped)
-                {
-                    _stopped = true;
-                    try { ctrl.StopShelling(); } catch { }
-                    // the bounded stop means the natural OnArtilleryEnd never fires,
-                    // and zones register with Duration -1 (never self-expire) — a
-                    // lingering ActiveZonesOnMap entry makes every nearby bot grind
-                    // cover scans vs the zone forever (2026-08-18: the 36ms endgame
-                    // chop began 45s after zone 4's window closed and never stopped)
-                    ClearLingeringZones();
-                    Plugin.Log.LogInfo("[Artillery] barrage window closed — shelling stopped, pump idle until the next zone trip");
-                }
-            }
-            catch (Exception e)
-            {
-                if (!_pumpWarned) { _pumpWarned = true; Plugin.Log.LogWarning($"[Artillery] pump threw (once): {e}"); }
-            }
-        }
-        private static bool _pumpWarned;
+	private static bool _staged;
 
-        private static void ClearLingeringZones()
-        {
-            try
-            {
-                var dict = ActiveZonesDict();
-                if (dict == null)
-                {
-                    // reflection miss vs genuinely empty must be distinguishable —
-                    // 2026-08-19 raid: no clear line ever logged and we couldnt tell
-                    Plugin.Log.LogWarning("[Artillery] zones controller/dict not reachable — clear skipped (reflection miss?)");
-                    return;
-                }
-                int n = dict.Count;
-                if (n > 0)
-                {
-                    dict.Clear();
-                    Plugin.Log.LogInfo($"[Artillery] {n} lingering danger zone(s) cleared — bots stop scanning them");
-                }
-                else Plugin.Log.LogInfo("[Artillery] no lingering zones at window close (registry was empty)");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Artillery] zone clear failed: {e.Message}"); }
-        }
+	private static bool _injected;
 
-        // shared accessor for the client-side artillery zone registry — also used
-        // by the perf watcher to annotate spikes.
-        //
-        // reflection is cached per BotsController type: on 4.0.13 there is no
-        // `ArtilleryZonesController` member on BotsController at all, and the
-        // uncached AccessTools.Property lookup emits a WARNING every call
-        // (HarmonyX logs cache misses at Warning level — 2026-08-21 raid log:
-        // one warning per PerfWatch spike-log). resolve once, flag "missing",
-        // then never touch reflection again.
-        private static Type _bcTypeCached;
-        private static System.Reflection.PropertyInfo _bcZcProp;
-        private static System.Reflection.FieldInfo _bcZcField;
-        private static Type _zcTypeCached;
-        private static System.Reflection.PropertyInfo _zcMapProp;
-        private static System.Reflection.FieldInfo _zcMapField;
-        internal static System.Collections.IDictionary ActiveZonesDict()
-        {
-            try
-            {
-                var game = Singleton<IBotGame>.Instantiated ? Singleton<IBotGame>.Instance : null;
-                var bc = game?.BotsController;
-                if (bc == null) return null;
+	private static readonly HashSet<string> NativeSet = new HashSet<string> { "TriggerZone" };
 
-                var bcT = bc.GetType();
-                if (_bcTypeCached != bcT)
-                {
-                    _bcTypeCached = bcT;
-                    _bcZcProp = bcT.GetProperty("ArtilleryZonesController",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    _bcZcField = bcT.GetField("ArtilleryZonesController",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                }
-                object zc = _bcZcProp?.GetValue(bc) ?? _bcZcField?.GetValue(bc);
-                if (zc == null) return null;
+	private static bool _stopped = true;
 
-                var zcT = zc.GetType();
-                if (_zcTypeCached != zcT)
-                {
-                    _zcTypeCached = zcT;
-                    _zcMapProp = zcT.GetProperty("ActiveZonesOnMap",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    _zcMapField = zcT.GetField("ActiveZonesOnMap",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                }
-                return (_zcMapProp?.GetValue(zc) ?? _zcMapField?.GetValue(zc)) as System.Collections.IDictionary;
-            }
-            catch { return null; }
-        }
+	internal static bool UpdateGuardEnabled;
 
-        internal static bool Pumping => !_stopped;
+	private static ArtilleryShellingControllerServer _lastUpdatedController;
 
-        internal static void TryStage()
-        {
-            if (_staged || !Plugin.Artillery.Value) return;
-            if (!TerminalGate.On) return;
-            var gw = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
-            if (gw == null || gw.TriggersEmitter == null) return;
+	private static int _lastUpdatedFrame = -1;
 
-            var root = TerminalRigFill.FindRootNamed("ArtilleryTriggers");
-            if (!root) return;
+	private static bool _pumpWarned;
 
-            try
-            {
-                var path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "plugin-data", "terminal_endgame.json");
-                var sc = JObject.Parse(System.IO.File.ReadAllText(path));
+	private static Type _bcTypeCached;
 
-                var index = new Dictionary<string, Transform>();
-                TerminalRigFill.IndexTree(root, "ArtilleryTriggers", index);
-                TerminalRigFill.StageRows(sc["rows"] as JArray, NativeSet, index, "Artillery");
+	private static PropertyInfo _bcZcProp;
 
-                if (gw.ServerShellingController == null)
-                    Plugin.Log.LogWarning("[Artillery] shelling controller NOT created — config injection missed the game-create window?");
+	private static FieldInfo _bcZcField;
 
-                for (int i = 1; i <= 4; i++)
-                {
-                    var zoneId = i.ToString();
-                    EFT.GameTriggers.TriggersEmitter.Instance.Subscribe($"artillery_trigger_{i}", new Action(() => OnZoneTripped(zoneId)));
-                }
+	private static Type _zcTypeCached;
 
-                _staged = true;
-                Plugin.Log.LogInfo("[Artillery] ARTILLERY RESTORED — 4 trigger zones armed, barrage on entry");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Artillery] staging failed: {e}");
-                _staged = true;
-            }
-        }
+	private static PropertyInfo _zcMapProp;
 
-        private static void OnZoneTripped(string zoneId)
-        {
-            try
-            {
-                var ctrl = ArtilleryShellingControllerServer.Instance;
-                if (ctrl == null) { Plugin.Log.LogWarning("[Artillery] zone tripped but no shelling controller"); return; }
-                ctrl.StartImmediateShellingZone(zoneId);
-                _pumpUntil = Time.realtimeSinceStartup + BarrageWindow;
-                Plugin.Log.LogInfo($"[Artillery] zone {zoneId} tripped — shelling called in ({BarrageWindow:0}s pump window)");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Artillery] shelling start failed: {e}"); }
-        }
-    }
+	private static FieldInfo _zcMapField;
+
+	private static TerminalArtilleryPolicy _zonePolicy;
+
+	private static readonly Queue<(string[] Added, string[] Removed)> ZoneChanges = new Queue<(string[], string[])>();
+
+	private static readonly List<string> AddedZones = new List<string>();
+
+	private static readonly List<string> RemovedZones = new List<string>();
+
+	private static readonly Dictionary<string, ArtilleryShellingZone> KnownZones = new Dictionary<string, ArtilleryShellingZone>(StringComparer.Ordinal);
+
+	internal static bool ZoneAdapterEnabled;
+
+	internal static bool Pumping => !_stopped;
+
+	internal static void ResetForRaid()
+	{
+		_staged = false;
+		_stopped = true;
+		_pumpWarned = false;
+		_lastUpdatedController = null;
+		_lastUpdatedFrame = -1;
+		ResetPlannedZones();
+	}
+
+	internal static void InjectConfig()
+	{
+		if (_injected || !Plugin.Artillery.Value || !ZoneAdapterEnabled)
+		{
+			return;
+		}
+		try
+		{
+			string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "terminal_artillery.json");
+			if (!File.Exists(path))
+			{
+				Plugin.Log.LogWarning("[Artillery] terminal_artillery.json missing — no barrage");
+				_injected = true;
+				return;
+			}
+			JObject jObject = JObject.Parse(File.ReadAllText(path));
+			LoadPlannedZones(jObject);
+			GlobalConfiguration.ArtilleryShellingGlobalSettings artilleryShellingGlobalSettings = Singleton<GlobalConfiguration>.Instance?.ArtilleryShelling;
+			if (artilleryShellingGlobalSettings == null || artilleryShellingGlobalSettings.ArtilleryMapsConfigs == null)
+			{
+				Plugin.Log.LogWarning("[Artillery] backend ArtilleryShelling config absent — no barrage");
+				return;
+			}
+			Type type = AccessTools.TypeByName("CommonAssets.Scripts.ArtilleryShelling.ArtilleryShellingMapConfiguration") ?? AccessTools.TypeByName("ArtilleryShellingMapConfiguration");
+			if (type == null)
+			{
+				Plugin.Log.LogWarning("[Artillery] map-config type missing");
+				_injected = true;
+				return;
+			}
+			object obj = Activator.CreateInstance(type);
+			JObject jObject2 = (JObject)jObject.DeepClone();
+			foreach (JToken item in (JArray)jObject2["ShellingZones"])
+			{
+				((JObject)item).Remove("TriggerInclude");
+				((JObject)item).Remove("TriggerExclude");
+			}
+			TerminalRigFill.FillObject(obj, jObject2, new Dictionary<string, Transform>());
+			((IDictionary)artilleryShellingGlobalSettings.ArtilleryMapsConfigs)[(object)"Terminal"] = obj;
+			_injected = true;
+			Plugin.Log.LogInfo("[Artillery] Terminal shelling config injected — native controllers will arm at game start");
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Artillery] config inject failed: {arg}");
+		}
+	}
+
+	internal static void Pump()
+	{
+		if (!Plugin.Artillery.Value || !TerminalGate.On || !TerminalCoop.Authority || !UpdateGuardEnabled)
+		{
+			return;
+		}
+		try
+		{
+			ArtilleryShellingControllerServer artilleryShellingControllerServer = (Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null)?.ServerShellingController;
+			if (artilleryShellingControllerServer != null)
+			{
+				if (artilleryShellingControllerServer.ShellingOn || artilleryShellingControllerServer.TargetShellingOn || artilleryShellingControllerServer.dictionary_0.Count > 0 || artilleryShellingControllerServer._zonesInEventShelling.Count > 0 || artilleryShellingControllerServer.ActiveProjectiles.Count > 0 || artilleryShellingControllerServer._notifyZoneShellingMessagesQueue.Count > 0 || ZoneChanges.Count > 0)
+				{
+					artilleryShellingControllerServer.OnUpdate();
+					_stopped = false;
+				}
+				else if (!_stopped)
+				{
+					_stopped = true;
+					Plugin.Log.LogInfo("[Artillery] native event rounds and projectiles finished; fallback pump idle");
+				}
+			}
+		}
+		catch (Exception arg)
+		{
+			if (!_pumpWarned)
+			{
+				_pumpWarned = true;
+				Plugin.Log.LogWarning($"[Artillery] pump threw (once): {arg}");
+			}
+		}
+	}
+
+	internal static IDictionary ActiveZonesDict()
+	{
+		try
+		{
+			BotsController botsController = (Singleton<IBotGame>.Instantiated ? Singleton<IBotGame>.Instance : null)?.BotsController;
+			if (botsController == null)
+			{
+				return null;
+			}
+			Type type = botsController.GetType();
+			if (_bcTypeCached != type)
+			{
+				_bcTypeCached = type;
+				_bcZcProp = type.GetProperty("ArtilleryZonesController", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				_bcZcField = type.GetField("ArtilleryZonesController", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			}
+			object obj = _bcZcProp?.GetValue(botsController) ?? _bcZcField?.GetValue(botsController);
+			if (obj == null)
+			{
+				return null;
+			}
+			Type type2 = obj.GetType();
+			if (_zcTypeCached != type2)
+			{
+				_zcTypeCached = type2;
+				_zcMapProp = type2.GetProperty("ActiveZonesOnMap", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				_zcMapField = type2.GetField("ActiveZonesOnMap", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			}
+			return (_zcMapProp?.GetValue(obj) ?? _zcMapField?.GetValue(obj)) as IDictionary;
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	internal static void TryStage()
+	{
+		if (_staged || !Plugin.Artillery.Value || !TerminalGate.On)
+		{
+			return;
+		}
+		GameWorld gameWorld = (Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null);
+		if (gameWorld == null || gameWorld.TriggersEmitter == null)
+		{
+			return;
+		}
+		Transform transform = TerminalRigFill.FindRootNamed("ArtilleryTriggers");
+		if (!transform)
+		{
+			return;
+		}
+		try
+		{
+			JObject jObject = JObject.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "terminal_endgame.json")));
+			Dictionary<string, Transform> index = new Dictionary<string, Transform>();
+			TerminalRigFill.IndexTree(transform, "ArtilleryTriggers", index);
+			TerminalRigFill.StageRows(jObject["rows"] as JArray, NativeSet, index, "Artillery");
+			if (gameWorld.ServerShellingController == null)
+			{
+				Plugin.Log.LogWarning("[Artillery] shelling controller NOT created — config injection missed the game-create window?");
+			}
+			for (int i = 1; i <= 4; i++)
+			{
+				string trigger = $"artillery_trigger_{i}";
+				TriggersEmitter.Instance.Subscribe(trigger, () =>
+				{
+					OnZoneTripped(trigger);
+				});
+			}
+			_staged = true;
+			Plugin.Log.LogInfo("[Artillery] four authored triggers armed; planned barrage zone membership restored");
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Artillery] staging failed: {arg}");
+			_staged = true;
+		}
+	}
+
+	private static void OnZoneTripped(string trigger)
+	{
+		if (!TerminalCoop.Authority)
+		{
+			return;
+		}
+		try
+		{
+			QueueZoneChanges(trigger);
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Artillery] shelling start failed: {arg}");
+		}
+	}
+
+	private static void LoadPlannedZones(JObject config)
+	{
+		//IL_0010: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0034: Unknown result type (might be due to invalid IL or missing references)
+		_zonePolicy = new TerminalArtilleryPolicy(ValueEnumerableExtensions.ToArray<FromEnumerable<JToken>, JToken, TerminalArtilleryPolicy.Rule>(ValueEnumerableExtensions.Select<FromEnumerable<JToken>, JToken, TerminalArtilleryPolicy.Rule>(ValueEnumerable.AsValueEnumerable<JToken>((IEnumerable<JToken>)(JArray)config["ShellingZones"]), (Func<JToken, TerminalArtilleryPolicy.Rule>)((JToken z) => new TerminalArtilleryPolicy.Rule(z.Value<string>("ID"), z.Value<bool>("UsedInPlanedShelling"), z.Value<bool>("IsActive"), z.Value<string>("TriggerInclude"), z.Value<string>("TriggerExclude"))))));
+	}
+
+	private static void ResetPlannedZones()
+	{
+		_zonePolicy?.Reset();
+		ZoneChanges.Clear();
+		AddedZones.Clear();
+		RemovedZones.Clear();
+		KnownZones.Clear();
+	}
+
+	private static void ApplyPendingZoneChanges(ArtilleryShellingControllerServer controller)
+	{
+		//IL_005c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_006d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0096: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ba: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00c0: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01c2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01d3: Unknown result type (might be due to invalid IL or missing references)
+		if (!ZoneAdapterEnabled || controller._currentMapConfiguration.ShellingZones == null)
+		{
+			return;
+		}
+		while (ZoneChanges.Count > 0)
+		{
+			(string[] Added, string[] Removed) change = ZoneChanges.Dequeue();
+			ArtilleryShellingZone[] array = ValueEnumerableExtensions.ToArray<ArtilleryShellingZone>(ValueEnumerableExtensions.Where<ArtilleryShellingZone>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>(controller._currentMapConfiguration.ShellingZones), (Func<ArtilleryShellingZone, bool>)((ArtilleryShellingZone z) =>
+			{
+				//IL_0018: Unknown result type (might be due to invalid IL or missing references)
+				//IL_0044: Unknown result type (might be due to invalid IL or missing references)
+				return ValueEnumerableExtensions.Contains<FromArray<string>, string>(ValueEnumerable.AsValueEnumerable<string>(change.Added), z.ID) && !ValueEnumerableExtensions.Any<FromEnumerable<ArtilleryShellingZone>, ArtilleryShellingZone>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>((IEnumerable<ArtilleryShellingZone>)controller.dictionary_0.Keys), (Func<ArtilleryShellingZone, bool>)((ArtilleryShellingZone artilleryShellingZone) => artilleryShellingZone.ID == z.ID));
+			})));
+			int num = ((array.Length != 0) ? ((int)MyExtensions.Random(1f, array.Length)) : 0);
+			ArtilleryShellingZone[] array2 = ((num >= array.Length) ? array : ValueEnumerableExtensions.ToArray<OrderBySkipTake<FromArray<ArtilleryShellingZone>, ArtilleryShellingZone, float>, ArtilleryShellingZone>(ValueEnumerableExtensions.Take<FromArray<ArtilleryShellingZone>, ArtilleryShellingZone, float>(ValueEnumerableExtensions.OrderBy<FromArray<ArtilleryShellingZone>, ArtilleryShellingZone, float>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone>(array), (Func<ArtilleryShellingZone, float>)((ArtilleryShellingZone _) => MyExtensions.Random(0f, 1f))), num)));
+			for (int num2 = 0; num2 < array2.Length; num2++)
+			{
+				ArtilleryShellingZone zone = array2[num2];
+				controller.FindShellingPointsByMapGeometryForZone(ref zone);
+				ArtilleryBrigade nearestBrigade = controller.GetNearestBrigade(zone);
+				controller.dictionary_0.Add(zone, new ZoneShellingProcess
+				{
+					roundsCountTarget = zone.ShellingRounds,
+					shotsCountTarget = zone.ShotCount,
+					shellingBrigadeID = nearestBrigade.ID,
+					ShellingPoints = controller.GetRandomShellingPoints(zone),
+					BoundsPoints = zone.ZoneBounds,
+					pauseBetweenRoundOn = true
+				});
+				KnownZones[zone.ID] = zone;
+				controller.AddNotifyShellingZOneToQueue(zone.ID);
+			}
+			KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess>[] array3 = ValueEnumerableExtensions.ToArray<FromDictionary<ArtilleryShellingZone, ZoneShellingProcess>, KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess>>(ValueEnumerableExtensions.Where<FromDictionary<ArtilleryShellingZone, ZoneShellingProcess>, KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess>>(ValueEnumerable.AsValueEnumerable<ArtilleryShellingZone, ZoneShellingProcess>(controller.dictionary_0), (Func<KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess>, bool>)((KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess> pair) =>
+			{
+				//IL_000b: Unknown result type (might be due to invalid IL or missing references)
+				return ValueEnumerableExtensions.Contains<FromArray<string>, string>(ValueEnumerable.AsValueEnumerable<string>(change.Removed), pair.Key.ID);
+			})));
+			for (int num2 = 0; num2 < array3.Length; num2++)
+			{
+				KeyValuePair<ArtilleryShellingZone, ZoneShellingProcess> keyValuePair = array3[num2];
+				KnownZones[keyValuePair.Key.ID] = keyValuePair.Key;
+				foreach (int key in keyValuePair.Value.PlayersInAlertZone.Keys)
+				{
+					controller.SendPlayersAlertState(key, "", Vector3.zero);
+				}
+				keyValuePair.Value.RefreshProcess();
+				controller.dictionary_0.Remove(keyValuePair.Key);
+			}
+			controller._needCheckPlayers = true;
+		}
+	}
+
+	private static void QueueZoneChanges(string trigger)
+	{
+		if (_zonePolicy != null)
+		{
+			_zonePolicy.Apply(trigger, AddedZones, RemovedZones);
+			if (AddedZones.Count != 0 || RemovedZones.Count != 0)
+			{
+				ZoneChanges.Enqueue((AddedZones.ToArray(), RemovedZones.ToArray()));
+				Plugin.Log.LogInfo("[Artillery] " + trigger + ": include " + string.Join(",", AddedZones) + ", exclude " + string.Join(",", RemovedZones));
+			}
+		}
+	}
 }

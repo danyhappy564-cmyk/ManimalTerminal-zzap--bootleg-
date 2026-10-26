@@ -1,808 +1,1011 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using Audio.AmbientSubsystem;
+using EFT.CameraControl;
+using EFT.Weather;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalWeather
 {
-    // WEATHER STACK RESURRECTION, take 2 — the first attempt was a scalar-only filler
-    // and it face-planted exactly where icebreaker's port predicted: WeatherController's
-    // serialized OBJECT fields (WeatherDebug), component cross-refs (CloudController /
-    // TimeOfDayController / RainController), AnimationCurves and external assets all
-    // stayed null. result: Awake threw on WeatherDebug.SavePreset, the controller died
-    // half-born, and the shader-less renderers spammed 7248 null-shader Material NREs
-    // in one raid. this is the PROVEN icebreaker machinery instead, param-ported:
-    // pass 1 create (deferred deps last, get-or-add), pass 2 FillFields with full ref
-    // resolution (path_id -> rebuilt component, scene_objects table, external assets by
-    // recovered name, settings ScriptableObjects rebuilt from values), pass 3 wake.
-    //
-    // terminal deviations from icebreaker, on purpose:
-    //  - TOD_* rows are SKIPPED — TerminalSceneScrub already healed the live sky and
-    //    TOD_Time is deliberately disabled (TerminalTimeWeather owns the clock); a
-    //    second filler racing that would re-break what finally works.
-    //  - snow/winter rows are SKIPPED — terminal is a rain map; staging SnowFlakes only
-    //    buys missing-texture warnings.
-    //  - a render-asset guard disables any staged component whose Shader fields (or
-    //    RainFallDrops' _close material) didn't resolve, BEFORE its Awake runs — one
-    //    honest log line instead of a per-frame NRE firehose.
-    internal static class TerminalWeather
-    {
-        private static JObject _sidecar;
-        private static bool _sidecarTried;
-        private static GameObject _marker; // liveness — dies with the raid scenes
-        private static bool _rainVisualReady;
-        private static float _nextRainVisualAttempt;
+	private static JObject _sidecar;
 
-        private static readonly Dictionary<long, Component> _comps = new Dictionary<long, Component>();
-        private static readonly Dictionary<string, Transform> _pathIndex = new Dictionary<string, Transform>();
-        private static readonly Dictionary<string, UnityEngine.Object> _assetCache = new Dictionary<string, UnityEngine.Object>();
-        private static readonly Dictionary<string, UnityEngine.Object> _settingsCache = new Dictionary<string, UnityEngine.Object>();
-        private static readonly List<string> _missingAssets = new List<string>();
-        private static Texture2D _terminalCloudMap;
+	private static bool _sidecarTried;
 
-        private static readonly HashSet<string> SkipClasses = new HashSet<string>
-        {
-            "TOD_Sky", "TOD_Components", "TOD_Resources", "TOD_Time",
-            "SnowFlakes", "SnowRippleController", "SnowWetRenderer", "WinterEventVisual",
-            // 2026-08-15 fps kill: SceneLights drives LampSystem.UpdateComponent over
-            // EVERY LampController each frame — and all 1164 of terminal's lamps are
-            // dead-ref husks that throw. 76k logged exceptions in one raid = single-digit
-            // fps. the lamp reviver owns terminal's lights; this system has nothing to run.
-            "SceneLights",
-        };
+	private static GameObject _marker;
 
-        // 2026-08-15, the cel-shading/stutter pair of raids: ENABLED, these render
-        // retail's image-effect stack over 4.0's own post (hard-edged posterized
-        // black). fully SKIPPED, ToDController.Update NREs per frame on its
-        // null-unchecked `AmbientLightScript.SetSH(SH)` — 36k exceptions, killing
-        // WeatherController.LateUpdate before it drives rain/clouds at all. the
-        // resolution: the components must EXIST (SetSH writes plain fields) but never
-        // render — created and filled so refs resolve, then force-disabled pre-Awake.
-        private static readonly HashSet<string> ForceDisabled = new HashSet<string>
-        {
-            "Tonemapping", "AmbientLight", "AmbientHighlight",
-        };
+	private static bool _rainVisualReady;
 
-        internal static bool Staged => _marker;
+	private static float _nextRainVisualAttempt;
 
-        internal static void ResetForRaid()
-        {
-            _marker = null;
-            _rainVisualReady = false;
-            _nextRainVisualAttempt = 0f;
-        }
+	private static RainController _rainController;
 
-        private static JObject Sidecar()
-        {
-            if (_sidecarTried) return _sidecar;
-            _sidecarTried = true;
-            try
-            {
-                var path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "plugin-data", "terminal_weather.json");
-                if (!System.IO.File.Exists(path))
-                {
-                    Plugin.Log.LogDebug($"[Weather] no sidecar at {path} — weather stays off");
-                    return null;
-                }
-                _sidecar = JObject.Parse(System.IO.File.ReadAllText(path));
-                Plugin.Log.LogInfo("[Weather] sidecar loaded");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Weather] sidecar parse failed: {e.Message}");
-            }
-            return _sidecar;
-        }
+	private static Camera _rainCamera;
 
-        public static bool TryStage()
-        {
-            if (_marker) return true;
-            if (!Plugin.WeatherStack.Value) return false;
-            var sc = Sidecar();
-            var comps = sc?["components"] as JObject;
-            if (comps == null || !TerminalLoaded.Check()) return false;
+	private static readonly Dictionary<long, Component> _comps = new Dictionary<long, Component>();
 
-            try
-            {
-                _comps.Clear(); _pathIndex.Clear(); _assetCache.Clear();
-                _settingsCache.Clear(); _missingAssets.Clear();
+	private static readonly Dictionary<string, Transform> _pathIndex = new Dictionary<string, Transform>();
 
-                // the two subtree roots survive in the bundled Scripts scene
-                var roots = new List<Transform>();
-                foreach (var rootName in new[] { "Weather", "Sky Dome" })
-                {
-                    var t = FindSceneGo(rootName);
-                    if (!t) { Plugin.Log.LogDebug($"[Weather] root '{rootName}' not in scene — aborting"); return false; }
-                    roots.Add(t);
-                    IndexSubtree(t, rootName);
-                }
+	private static readonly Dictionary<string, UnityEngine.Object> _assetCache = new Dictionary<string, UnityEngine.Object>();
 
-                var reactivate = new List<GameObject>();
-                foreach (var r in roots)
-                    if (r.gameObject.activeSelf) { r.gameObject.SetActive(false); reactivate.Add(r.gameObject); }
+	private static readonly Dictionary<string, UnityEngine.Object> _settingsCache = new Dictionary<string, UnityEngine.Object>();
 
-                // pass 1 — create all components (fields land before any Awake runs).
-                // ORDER + REUSE MATTER (icebreaker lesson): dependees added LAST, every
-                // add is get-or-add so a RequireComponent auto-add gets FILLED, never
-                // duplicated.
-                int created = 0, missingGo = 0, skippedRows = 0;
-                var rows = new List<(JToken row, Component comp)>();
-                // no LINQ (client code style): flatten then stable two-pass ordering —
-                // everything else first, deferred dependees (WeatherController) last
-                var ordered = new List<JToken>();
-                foreach (var prop in comps.Properties())
-                    if (prop.Value is JArray arr)
-                        foreach (var r in arr)
-                            if ((r.Value<string>("class") ?? "") != "EFT.Weather.WeatherController")
-                                ordered.Add(r);
-                foreach (var prop in comps.Properties())
-                    if (prop.Value is JArray arr)
-                        foreach (var r in arr)
-                            if ((r.Value<string>("class") ?? "") == "EFT.Weather.WeatherController")
-                                ordered.Add(r);
-                foreach (var row in ordered)
-                {
-                    var clsFull = row.Value<string>("class") ?? "";
-                    var clsShort = clsFull.Contains('.') ? clsFull.Substring(clsFull.LastIndexOf('.') + 1) : clsFull;
-                    if (SkipClasses.Contains(clsShort)) { skippedRows++; continue; }
-                    var type = AccessTools.TypeByName(clsFull);
-                    if (type == null) { Plugin.Log.LogDebug($"[Weather] type not in 4.0: {clsFull}"); continue; }
-                    GameObject go = _pathIndex.TryGetValue(row.Value<string>("go") ?? "", out var t) ? t.gameObject : null;
-                    if (!go) { missingGo++; continue; }
-                    Component c = go.GetComponent(type);
-                    if (!c) c = go.AddComponent(type);
-                    if (!c) continue; // unity refused (abstract/invalid)
-                    _comps[row.Value<long>("path_id")] = c;
-                    rows.Add((row, c));
-                    created++;
-                }
-                if (missingGo > 0) Plugin.Log.LogWarning($"[Weather] {missingGo} component GOs not found in bundled tree");
+	private static readonly List<string> _missingAssets = new List<string>();
 
-                // pass 2 — fields + refs
-                foreach (var (row, c) in rows)
-                    if (row["fields"] is JObject f)
-                        FillFields(c, f);
+	private static Texture2D _terminalCloudMap;
 
-                // WeatherDebug is the first thing Awake touches (SavePreset) — a null
-                // here is how last raid's controller died mid-Awake with Instance set
-                foreach (var (_, comp) in rows)
-                    if (comp is EFT.Weather.WeatherController wcc && wcc.WeatherDebug == null)
-                    {
-                        wcc.WeatherDebug = new EFT.Weather.WeatherDebug();
-                        Plugin.Log.LogWarning("[Weather] WeatherDebug didn't fill from the sidecar — fresh instance substituted");
-                    }
+	private static Texture2D _terminalRainRipple;
 
-                // render-asset guard — BEFORE reactivation so a disabled component never
-                // runs its Awake. a null Shader field means the asset didn't resolve and
-                // the component would new Material(null) EVERY FRAME (7248 NREs last raid)
-                int disabled = 0;
-                foreach (var (row, c) in rows)
-                {
-                    if (!(c is Behaviour b) || c is EFT.Weather.WeatherController) continue;
-                    var tn = c.GetType().Name;
-                    if (ForceDisabled.Contains(tn))
-                    {
-                        // AmbientLight graduates when the stencil system is on (user
-                        // 2026-08-16): with StencilShadow volumes + AnalyticSource
-                        // portals + resolved shaders + live SH, the screen ambient pass
-                        // has all its retail inputs — the cel-shading raid ran it with
-                        // Tonemapping stacked on top and NO stencils. those two stay
-                        // forced off.
-                        {
-                            b.enabled = false;
-                            disabled++;
-                            continue;
-                        }
-                    }
-                    string missing = null;
-                    foreach (var fi in c.GetType().GetFields(System.Reflection.BindingFlags.Instance
-                        | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
-                    {
-                        if (fi.FieldType == typeof(Shader) && !(fi.GetValue(c) as Shader)) { missing = $"Shader {fi.Name}"; break; }
-                        if (fi.Name == "_close" && fi.FieldType == typeof(Material) && !(fi.GetValue(c) as Material)) { missing = "Material _close"; break; }
-                    }
-                    if (missing != null)
-                    {
-                        b.enabled = false;
-                        disabled++;
-                        _missingAssets.Add($"{c.GetType().Name} ({missing})");
-                        // disabling is not enough: RainController's inner classes call
-                        // straight into _wetRenderer's lazy material getter regardless
-                        // of enabled state — a null shader there was 49k Material-ctor
-                        // exceptions in one raid. stuff a benign build shader so any
-                        // cross-component access constructs a harmless material instead
-                        // of throwing per frame.
-                        var stuffing = Shader.Find("Hidden/BlitCopy");
-                        if (!stuffing) stuffing = Shader.Find("Sprites/Default");
-                        if (stuffing)
-                            foreach (var fi in c.GetType().GetFields(System.Reflection.BindingFlags.Instance
-                                | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
-                                if (fi.FieldType == typeof(Shader) && !(fi.GetValue(c) as Shader))
-                                    fi.SetValue(c, stuffing);
-                    }
-                }
+	private static readonly HashSet<string> SkipClasses = new HashSet<string> { "TOD_Sky", "TOD_Components", "TOD_Resources", "TOD_Time", "SnowFlakes", "SnowRippleController", "SnowWetRenderer", "WinterEventVisual", "SceneLights" };
 
-                // pass 3 — wake it all up (unity logs+continues on any individual Awake throw)
-                foreach (var go in reactivate) go.SetActive(true);
+	private static readonly HashSet<string> ForceDisabled = new HashSet<string> { "Tonemapping", "AmbientLight", "AmbientHighlight" };
 
-                _probeAt = Time.time + 25f;
-                _probePasses = 0;
-                _rainAudioHealed = false;
-                _marker = new GameObject("Terminal_WeatherStaged");
-                var scr = SceneManager.GetSceneByName("Terminal_Scripts");
-                if (scr.IsValid() && scr.isLoaded) SceneManager.MoveGameObjectToScene(_marker, scr);
+	private static float _probeAt = -1f;
 
-                if (_missingAssets.Count > 0)
-                    {
-                    // no LINQ: Distinct here resolves to EFT's shadowing Diz.Utils.LinqExtensions
-                    // extension (different signature) the moment System.Linq leaves
-                    var uniq = new HashSet<string>(_missingAssets);
-                    Plugin.Log.LogWarning($"[Weather] MISSING ASSETS ({uniq.Count}) — add via editor carrier pass: {string.Join(", ", uniq)}");
-                }
-                Plugin.Log.LogWarning($"[Weather] WEATHER STACK REBUILT: {created} component(s) "
-                    + $"({skippedRows} sky/snow row(s) skipped by design{(disabled > 0 ? $", {disabled} disabled for unresolved render assets" : "")}) — "
-                    + $"WeatherController.Instance {(EFT.Weather.WeatherController.Instance ? "OK" : "STILL NULL")}");
-                return true;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Weather] rebuild failed: {e}");
-                return false;
-            }
-        }
+	private static int _probePasses;
 
-        // RAIN PROBE — the rain chain has failed silently across several raids ("still
-        // no rain"); the end-of-raid stacks show the state machine CONSTRUCTING inside
-        // OnDestroy, i.e. it never built during play. one state dump 25s after staging
-        // names the null link instead of another blind fix. reflection-only: never call
-        // Class668_0's GETTER (it lazily constructs — that's the thing we're probing).
-        private static float _probeAt = -1f;
+	internal static bool Staged
+	{
+		get
+		{
+			if (!_marker)
+			{
+				return TerminalWeatherLifecycle.HasNativeWeather(WeatherController.Instance);
+			}
+			return true;
+		}
+	}
 
-        private static int _probePasses;
+	internal static void ResetForRaid()
+	{
+		_marker = null;
+		_rainVisualReady = false;
+		_nextRainVisualAttempt = 0f;
+		_rainController = null;
+		_rainCamera = null;
+	}
 
-        // RainController.Awake subscribes to EFT.CameraControl.CameraManager.OnCameraChanged, but Terminal's
-        // reconstructed weather stack wakes before the raid camera exists. The one event
-        // which normally supplies its camera anchor is therefore missed forever. The old
-        // diagnostic repaired that only on its first 25-second probe, visibly switching
-        // rain on in the middle of the intro. Heal it as a startup prerequisite instead.
-        internal static bool TryEnsureRainVisualReady()
-        {
-            if (_rainVisualReady) return true;
-            if (!_marker) return false;
-            try
-            {
-                // A Fika headless client has no rendering camera. Checking for it
-                // before FindObjectOfType avoids an 80-95ms full-scene scan every
-                // frame. On a visual client, also bound retries while rain is staging.
-                var camera = EFT.CameraControl.CameraManager.Instance?.Camera;
-                if (!camera) return false;
-                if (Time.realtimeSinceStartup < _nextRainVisualAttempt) return false;
-                _nextRainVisualAttempt = Time.realtimeSinceStartup + 1f;
-                var rc = UnityEngine.Object.FindObjectOfType<RainController>();
-                if (!rc || !rc.enabled || !rc.gameObject.activeInHierarchy) return false;
-                var anchorField = AccessTools.Field(typeof(RainController), "_camera");
-                var anchor = anchorField?.GetValue(rc) as Transform;
-                if (!anchor)
-                {
-                    // method_0 constructs the summer state, initializes RainFallDrops,
-                    // binds the camera, and renders the roof-depth texture. It can throw
-                    // later while looking for optional screen-droplet effects; the anchor
-                    // is assigned before that point, so retain it and use a direct-set
-                    // backstop exactly as the delayed diagnostic previously did.
-                    try { AccessTools.Method(typeof(RainController), "CameraChanged")?.Invoke(rc, null); }
-                    catch { }
-                    anchor = anchorField?.GetValue(rc) as Transform;
-                    if (!anchor && anchorField != null)
-                    {
-                        anchorField.SetValue(rc, camera.transform);
-                        anchor = camera.transform;
-                    }
-                    if (anchor)
-                        Plugin.Log.LogInfo($"[Weather] rain visuals armed before playback on camera '{anchor.name}'");
-                }
+	private static JObject Sidecar()
+	{
+		if (_sidecarTried)
+		{
+			return _sidecar;
+		}
+		_sidecarTried = true;
+		try
+		{
+			string text = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "terminal_weather.json");
+			if (!File.Exists(text))
+			{
+				Plugin.Log.LogDebug("[Weather] no sidecar at " + text + " — weather stays off");
+				return null;
+			}
+			_sidecar = JObject.Parse(File.ReadAllText(text));
+			Plugin.Log.LogInfo("[Weather] sidecar loaded");
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Weather] sidecar parse failed: " + ex.Message);
+		}
+		return _sidecar;
+	}
 
-                bool stateBuilt = AccessTools.Field(typeof(RainController), "_state")?.GetValue(rc) != null;
-                bool fallReady = AccessTools.Field(typeof(RainController), "_rainFallDrops")?.GetValue(rc) != null;
-                bool depthReady = AccessTools.Field(typeof(RainController), "_depthPhotograper")?.GetValue(rc) != null;
-                _rainVisualReady = anchor && stateBuilt && fallReady && depthReady;
-                return _rainVisualReady;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogDebug($"[Weather] early rain visual hookup waiting: {e.Message}");
-                return false;
-            }
-        }
+	public static bool TryStage()
+	{
+		if ((bool)_marker)
+		{
+			return true;
+		}
+		if (!Plugin.WeatherStack.Value)
+		{
+			return false;
+		}
+		WeatherController instance = WeatherController.Instance;
+		if (TerminalWeatherLifecycle.HasNativeWeather(instance) && !TerminalWeatherLifecycle.IsReconstructed(instance))
+		{
+			_rainController = instance.RainController;
+			return true;
+		}
+		if (!(Sidecar()?["components"] is JObject jObject) || !TerminalLoaded.Check())
+		{
+			return false;
+		}
+		try
+		{
+			_comps.Clear();
+			_pathIndex.Clear();
+			_assetCache.Clear();
+			_settingsCache.Clear();
+			_missingAssets.Clear();
+			List<Transform> list = new List<Transform>();
+			string[] array = new string[2] { "Weather", "Sky Dome" };
+			foreach (string text in array)
+			{
+				Transform transform = FindSceneGo(text);
+				if (!transform)
+				{
+					Plugin.Log.LogDebug("[Weather] root '" + text + "' not in scene — aborting");
+					return false;
+				}
+				list.Add(transform);
+				IndexSubtree(transform, text);
+			}
+			List<GameObject> list2 = new List<GameObject>();
+			foreach (Transform item3 in list)
+			{
+				if (item3.gameObject.activeSelf)
+				{
+					item3.gameObject.SetActive(value: false);
+					list2.Add(item3.gameObject);
+				}
+			}
+			int num = 0;
+			int num2 = 0;
+			int num3 = 0;
+			List<(JToken, Component)> list3 = new List<(JToken, Component)>();
+			List<JToken> list4 = new List<JToken>();
+			foreach (JProperty item4 in jObject.Properties())
+			{
+				if (!(item4.Value is JArray jArray))
+				{
+					continue;
+				}
+				foreach (JToken item5 in jArray)
+				{
+					if ((item5.Value<string>("class") ?? "") != "EFT.Weather.WeatherController")
+					{
+						list4.Add(item5);
+					}
+				}
+			}
+			foreach (JProperty item6 in jObject.Properties())
+			{
+				if (!(item6.Value is JArray jArray2))
+				{
+					continue;
+				}
+				foreach (JToken item7 in jArray2)
+				{
+					if ((item7.Value<string>("class") ?? "") == "EFT.Weather.WeatherController")
+					{
+						list4.Add(item7);
+					}
+				}
+			}
+			foreach (JToken item8 in list4)
+			{
+				string text2 = item8.Value<string>("class") ?? "";
+				string item = (text2.Contains('.') ? text2.Substring(text2.LastIndexOf('.') + 1) : text2);
+				if (SkipClasses.Contains(item))
+				{
+					num3++;
+					continue;
+				}
+				Type type = AccessTools.TypeByName(text2);
+				if (type == null)
+				{
+					Plugin.Log.LogDebug("[Weather] type not in 4.0: " + text2);
+					continue;
+				}
+				GameObject gameObject = (_pathIndex.TryGetValue(item8.Value<string>("go") ?? "", out var value) ? value.gameObject : null);
+				if (!gameObject)
+				{
+					num2++;
+					continue;
+				}
+				Component component = gameObject.GetComponent(type);
+				if (!component)
+				{
+					component = gameObject.AddComponent(type);
+				}
+				if ((bool)component)
+				{
+					_comps[item8.Value<long>("path_id")] = component;
+					if (component is RainController rainController)
+					{
+						_rainController = rainController;
+					}
+					list3.Add((item8, component));
+					num++;
+				}
+			}
+			if (num2 > 0)
+			{
+				Plugin.Log.LogWarning($"[Weather] {num2} component GOs not found in bundled tree");
+			}
+			foreach (var (jToken, target) in list3)
+			{
+				if (jToken["fields"] is JObject fields)
+				{
+					FillFields(target, fields);
+				}
+			}
+			foreach (var item9 in list3)
+			{
+				if (item9.Item2 is WeatherController { WeatherDebug: null } weatherController)
+				{
+					weatherController.WeatherDebug = new WeatherDebug();
+					Plugin.Log.LogWarning("[Weather] WeatherDebug didn't fill from the sidecar — fresh instance substituted");
+				}
+			}
+			int num4 = 0;
+			foreach (var item10 in list3)
+			{
+				Component item2 = item10.Item2;
+				if (!(item2 is Behaviour behaviour) || item2 is WeatherController)
+				{
+					continue;
+				}
+				string name = item2.GetType().Name;
+				if (ForceDisabled.Contains(name))
+				{
+					behaviour.enabled = false;
+					num4++;
+					continue;
+				}
+				string text3 = null;
+				FieldInfo[] fields2 = item2.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				foreach (FieldInfo fieldInfo in fields2)
+				{
+					if (fieldInfo.FieldType == typeof(Shader) && !(fieldInfo.GetValue(item2) as Shader))
+					{
+						text3 = "Shader " + fieldInfo.Name;
+						break;
+					}
+					if (fieldInfo.Name == "_close" && fieldInfo.FieldType == typeof(Material) && !(fieldInfo.GetValue(item2) as Material))
+					{
+						text3 = "Material _close";
+						break;
+					}
+				}
+				if (text3 == null)
+				{
+					continue;
+				}
+				behaviour.enabled = false;
+				num4++;
+				_missingAssets.Add(item2.GetType().Name + " (" + text3 + ")");
+				Shader shader = Shader.Find("Hidden/BlitCopy");
+				if (!shader)
+				{
+					shader = Shader.Find("Sprites/Default");
+				}
+				if (!shader)
+				{
+					continue;
+				}
+				fields2 = item2.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				foreach (FieldInfo fieldInfo2 in fields2)
+				{
+					if (fieldInfo2.FieldType == typeof(Shader) && !(fieldInfo2.GetValue(item2) as Shader))
+					{
+						fieldInfo2.SetValue(item2, shader);
+					}
+				}
+			}
+			foreach (GameObject item11 in list2)
+			{
+				item11.SetActive(value: true);
+			}
+			_probeAt = Time.time + 25f;
+			_probePasses = 0;
+			_marker = new GameObject("Terminal_WeatherStaged");
+			Scene sceneByName = SceneManager.GetSceneByName("Terminal_Scripts");
+			if (sceneByName.IsValid() && sceneByName.isLoaded)
+			{
+				SceneManager.MoveGameObjectToScene(_marker, sceneByName);
+			}
+			if (_missingAssets.Count > 0)
+			{
+				HashSet<string> hashSet = new HashSet<string>(_missingAssets);
+				Plugin.Log.LogWarning(string.Format("[Weather] MISSING ASSETS ({0}) — add via editor carrier pass: {1}", hashSet.Count, string.Join(", ", hashSet)));
+			}
+			Plugin.Log.LogWarning($"[Weather] WEATHER STACK REBUILT: {num} component(s) " + string.Format("({0} sky/snow row(s) skipped by design{1}) — ", num3, (num4 > 0) ? $", {num4} disabled for unresolved render assets" : "") + "WeatherController.Instance " + (WeatherController.Instance ? "OK" : "STILL NULL"));
+			return true;
+		}
+		catch (Exception arg)
+		{
+			Plugin.Log.LogWarning($"[Weather] rebuild failed: {arg}");
+			return false;
+		}
+	}
 
-        internal static void TickProbe()
-        {
-            if (_probeAt < 0f || Time.time < _probeAt) return;
-            // three passes: post-stage, post-heal, and well after the intro cutscene —
-            // the audio state differs across all three
-            _probeAt = ++_probePasses < 3 ? Time.time + 60f : -1f;
-            try
-            {
-                var rc = UnityEngine.Object.FindObjectOfType<RainController>();
-                if (!rc) { Plugin.Log.LogWarning("[Weather] RAIN PROBE: no RainController instance in scene"); return; }
-                string F(string name)
-                {
-                    var fi = AccessTools.Field(typeof(RainController), name);
-                    if (fi == null) return $"{name}=?";
-                    var v = fi.GetValue(rc);
-                    bool alive = v is UnityEngine.Object uo ? (bool)uo : v != null;
-                    return $"{name}={(alive ? "ok" : "NULL")}";
-                }
-                var wc = EFT.Weather.WeatherController.Instance;
-                float curveRain = -1f;
-                try { curveRain = wc ? wc.WeatherCurve.Rain : -1f; } catch { }
-                Plugin.Log.LogWarning("[Weather] RAIN PROBE: "
-                    + $"enabled={rc.enabled} active={rc.gameObject.activeInHierarchy} "
-                    + $"{F("_rainFallDrops")} {F("_rippleController")} {F("_rainSplashController")} "
-                    + $"{F("_wetRenderer")} {F("_depthPhotograper")} {F("_camera")} "
-                    + $"stateMachine={(AccessTools.Field(typeof(RainController), "_state")?.GetValue(rc) != null ? "BUILT" : "NOT BUILT")} "
-                    + $"staticIntensity={RainController.Intensity:0.00} curveRain={curveRain:0.00} "
-                    + $"debugEnabled={(wc && wc.WeatherDebug != null ? wc.WeatherDebug.isEnabled.ToString() : "n/a")}");
+	internal static bool TryEnsureRainVisualReady()
+	{
+		if (!Staged)
+		{
+			return false;
+		}
+		try
+		{
+			Camera camera = CameraManager.Instance?.Camera;
+			if (!camera)
+			{
+				_rainVisualReady = false;
+				return false;
+			}
+			if (_rainVisualReady && _rainCamera == camera && (bool)_rainController && _rainController.isActiveAndEnabled)
+			{
+				return true;
+			}
+			_rainVisualReady = false;
+			if (Time.realtimeSinceStartup < _nextRainVisualAttempt)
+			{
+				return false;
+			}
+			_nextRainVisualAttempt = Time.realtimeSinceStartup + 1f;
+			RainController rainController = _rainController;
+			if (!rainController)
+			{
+				rainController = (_rainController = UnityEngine.Object.FindObjectOfType<RainController>());
+			}
+			if (!rainController || !rainController.enabled || !rainController.gameObject.activeInHierarchy)
+			{
+				return false;
+			}
+			FieldInfo fieldInfo = AccessTools.Field(typeof(RainController), "_camera");
+			Transform transform = fieldInfo?.GetValue(rainController) as Transform;
+			if (!transform || transform != camera.transform)
+			{
+				try
+				{
+					AccessTools.Method(typeof(RainController), "CameraChanged")?.Invoke(rainController, null);
+				}
+				catch
+				{
+				}
+				transform = fieldInfo?.GetValue(rainController) as Transform;
+				if ((!transform || transform != camera.transform) && fieldInfo != null)
+				{
+					fieldInfo.SetValue(rainController, camera.transform);
+					transform = camera.transform;
+				}
+			}
+			bool flag = AccessTools.Field(typeof(RainController), "_state")?.GetValue(rainController) != null;
+			bool flag2 = AccessTools.Field(typeof(RainController), "_rainFallDrops")?.GetValue(rainController) != null;
+			bool flag3 = AccessTools.Field(typeof(RainController), "_depthPhotograper")?.GetValue(rainController) != null;
+			_rainVisualReady = (transform == camera.transform) & flag & flag2 & flag3;
+			if (_rainVisualReady)
+			{
+				_rainCamera = camera;
+				Plugin.Log.LogInfo("[Weather] outdoor rain dependencies ready on camera '" + camera.name + "'; screen effects tracked separately");
+			}
+			return _rainVisualReady;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogDebug("[Weather] early rain visual hookup waiting: " + ex.Message);
+			return false;
+		}
+	}
 
-                // THE 2026-08-15 PROBE VERDICT: everything healthy except transform_0 —
-                // the rain system's position anchor, assigned at runtime by the camera
-                // hookup (Class668.vmethod_8: transform_0 = cameraManager.Camera.transform)
-                // which ran during load with no camera, NREd on .Camera, got swallowed,
-                // and never retried. rain computed at full intensity around a null
-                // anchor. heal: re-run the hookup now that the camera exists; if the
-                // screen-effects tail still throws (Cam2 lacks RainScreenDrops), the
-                // anchor lands BEFORE that line — direct field set as the backstop.
-                var t0 = AccessTools.Field(typeof(RainController), "_camera");
-                if (t0 != null && !(t0.GetValue(rc) as Transform))
-                {
-                    var cam = EFT.CameraControl.CameraManager.Instance?.Camera;
-                    if (cam)
-                    {
-                        try { AccessTools.Method(typeof(RainController), "CameraChanged")?.Invoke(rc, null); } catch { }
-                        if (!(t0.GetValue(rc) as Transform)) t0.SetValue(rc, cam.transform);
-                        Plugin.Log.LogWarning($"[Weather] rain camera anchor healed (transform_0 was null — the load-time "
-                            + $"hookup ran before the camera existed): now '{(t0.GetValue(rc) as Transform)?.name}'");
-                        _probeAt = Time.time + 20f; // pull the next pass in for the heal confirm
-                    }
-                    else Plugin.Log.LogWarning("[Weather] rain anchor still unhealable — no camera yet");
-                }
+	internal static void TickProbe()
+	{
+		if (_probeAt < 0f || Time.time < _probeAt)
+		{
+			return;
+		}
+		_probeAt = ((++_probePasses < 3) ? (Time.time + 60f) : (-1f));
+		bool flag = Plugin.SceneCensus != null && Plugin.SceneCensus.Value;
+		try
+		{
+			RainController rc = _rainController;
+			if (!rc)
+			{
+				rc = UnityEngine.Object.FindObjectOfType<RainController>();
+				_rainController = rc;
+			}
+			if (!rc)
+			{
+				if (flag)
+				{
+					Plugin.Log.LogWarning("[Weather] RAIN PROBE: no RainController instance in scene");
+				}
+			}
+			else
+			{
+				if (flag)
+				{
+					WeatherController instance = WeatherController.Instance;
+					float num = -1f;
+					try
+					{
+						num = (instance ? instance.WeatherCurve.Rain : (-1f));
+					}
+					catch
+					{
+					}
+					Plugin.Log.LogWarning("[Weather] RAIN PROBE: " + $"enabled={rc.enabled} active={rc.gameObject.activeInHierarchy} " + F("_rainFallDrops") + " " + F("_rippleController") + " " + F("_rainSplashController") + " " + F("_wetRenderer") + " " + F("_depthPhotograper") + " " + F("_camera") + " stateMachine=" + ((AccessTools.Field(typeof(RainController), "_state")?.GetValue(rc) != null) ? "BUILT" : "NOT BUILT") + " " + $"staticIntensity={RainController.Intensity:0.00} curveRain={num:0.00} " + "debugEnabled=" + (((bool)instance && instance.WeatherDebug != null) ? instance.WeatherDebug.isEnabled.ToString() : "n/a"));
+				}
+				FieldInfo fieldInfo = AccessTools.Field(typeof(RainController), "_camera");
+				if (fieldInfo != null && !(fieldInfo.GetValue(rc) as Transform))
+				{
+					Camera camera = CameraManager.Instance?.Camera;
+					if ((bool)camera)
+					{
+						try
+						{
+							AccessTools.Method(typeof(RainController), "CameraChanged")?.Invoke(rc, null);
+						}
+						catch
+						{
+						}
+						if (!(fieldInfo.GetValue(rc) as Transform))
+						{
+							fieldInfo.SetValue(rc, camera.transform);
+						}
+						Plugin.Log.LogWarning("[Weather] rain camera anchor healed (transform_0 was null — the load-time hookup ran before the camera existed): now '" + (fieldInfo.GetValue(rc) as Transform)?.name + "'");
+						_probeAt = Time.time + 20f;
+					}
+					else
+					{
+						Plugin.Log.LogWarning("[Weather] rain anchor still unhealable — no camera yet");
+					}
+				}
+			}
+			if (!flag)
+			{
+				return;
+			}
+			try
+			{
+				PrecipitationAmbientBlender[] array = Resources.FindObjectsOfTypeAll<PrecipitationAmbientBlender>();
+				if (array.Length == 0)
+				{
+					Plugin.Log.LogWarning("[Weather] RAIN AUDIO: no PrecipitationAmbientBlender exists AT ALL — staging never built them");
+				}
+				PrecipitationAmbientBlender[] array2 = array;
+				foreach (PrecipitationAmbientBlender bl in array2)
+				{
+					if ((bool)bl && bl.gameObject.scene.IsValid())
+					{
+						Plugin.Log.LogWarning($"[Weather] RAIN AUDIO: blender '{bl.name}' enabled={bl.enabled} " + $"activeInHierarchy={bl.gameObject.activeInHierarchy} " + FF("_precipitationSource") + " " + FF("_precipitationMixSource") + " " + FF("_outputMixerGroup") + " " + $"controllerSays={RainController.IntensityType}");
+					}
+					string FF(string n)
+					{
+						object obj3 = AccessTools.Field(bl.GetType(), n)?.GetValue(bl);
+						bool flag2 = ((obj3 is UnityEngine.Object obj4) ? ((bool)obj4) : (obj3 != null));
+						return n + "=" + (flag2 ? "ok" : "NULL");
+					}
+				}
+				EnvironmentSoundBlendSystem environmentSoundBlendSystem = null;
+				EnvironmentSoundBlendSystem[] array3 = Resources.FindObjectsOfTypeAll<EnvironmentSoundBlendSystem>();
+				foreach (EnvironmentSoundBlendSystem environmentSoundBlendSystem2 in array3)
+				{
+					if ((bool)environmentSoundBlendSystem2 && environmentSoundBlendSystem2.gameObject.scene.IsValid())
+					{
+						environmentSoundBlendSystem = environmentSoundBlendSystem2;
+						break;
+					}
+				}
+				Plugin.Log.LogWarning("[Weather] RAIN AUDIO: EnvironmentSoundBlendSystem " + ((!environmentSoundBlendSystem) ? "MISSING — nothing drives the blenders" : $"present, enabled={environmentSoundBlendSystem.enabled}, active={environmentSoundBlendSystem.gameObject.activeInHierarchy}"));
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[Weather] rain audio probe failed: " + ex.Message);
+			}
+			string F(string name)
+			{
+				FieldInfo fieldInfo2 = AccessTools.Field(typeof(RainController), name);
+				if (fieldInfo2 == null)
+				{
+					return name + "=?";
+				}
+				object value = fieldInfo2.GetValue(rc);
+				bool flag2 = ((value is UnityEngine.Object obj3) ? ((bool)obj3) : (value != null));
+				return name + "=" + (flag2 ? "ok" : "NULL");
+			}
+		}
+		catch (Exception ex2)
+		{
+			Plugin.Log.LogWarning("[Weather] rain probe failed: " + ex2.Message);
+		}
+		finally
+		{
+			TryHealRainAudio();
+		}
+	}
 
-                // RAIN AUDIO probe (2026-08-15: "i see raindrops now but i dont hear
-                // rain") — the blender crossfades dry<->rain ambient loops off
-                // RainController.IntensityType; log whether it exists, ticks, and what
-                // it believes, so the silent link names itself
-                try
-                {
-                    // FindObjectsOfTypeAll: the ambient root may be cutscene-deactivated
-                    // at probe time — the plain Find missed staged blenders entirely
-                    // (2026-08-15 false negative "no blender in scene")
-                    var blenders = Resources.FindObjectsOfTypeAll<Audio.AmbientSubsystem.PrecipitationAmbientBlender>();
-                    if (blenders.Length == 0)
-                        Plugin.Log.LogWarning("[Weather] RAIN AUDIO: no PrecipitationAmbientBlender exists AT ALL — staging never built them");
-                    foreach (var bl in blenders)
-                    {
-                        if (!bl || !bl.gameObject.scene.IsValid()) continue; // prefab assets
-                        string FF(string n)
-                        {
-                            var v = AccessTools.Field(bl.GetType(), n)?.GetValue(bl);
-                            bool alive = v is UnityEngine.Object uo ? (bool)uo : v != null;
-                            return $"{n}={(alive ? "ok" : "NULL")}";
-                        }
-                        Plugin.Log.LogWarning($"[Weather] RAIN AUDIO: blender '{bl.name}' enabled={bl.enabled} "
-                            + $"activeInHierarchy={bl.gameObject.activeInHierarchy} "
-                            + $"{FF("_precipitationSource")} {FF("_precipitationMixSource")} {FF("_outputMixerGroup")} "
-                            + $"lastSeen={AccessTools.Field(bl.GetType(), "erainIntensity_0")?.GetValue(bl) ?? "?"} "
-                            + $"controllerSays={RainController.IntensityType}");
-                    }
-                    Audio.AmbientSubsystem.EnvironmentSoundBlendSystem ebs = null;
-                    foreach (var cand in Resources.FindObjectsOfTypeAll<Audio.AmbientSubsystem.EnvironmentSoundBlendSystem>())
-                        if (cand && cand.gameObject.scene.IsValid()) { ebs = cand; break; }
-                    Plugin.Log.LogWarning($"[Weather] RAIN AUDIO: EnvironmentSoundBlendSystem "
-                        + $"{(!ebs ? "MISSING — nothing drives the blenders" : $"present, enabled={ebs.enabled}, active={ebs.gameObject.activeInHierarchy}")}");
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"[Weather] rain audio probe failed: {e.Message}"); }
+	private static void TryHealRainAudio()
+	{
+		try
+		{
+			TerminalRainAudio.TryStage();
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Weather] rain audio recovery failed: " + ex.Message);
+		}
+	}
 
-                TryHealRainAudio();
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Weather] rain probe failed: {e.Message}"); }
-        }
+	private static Transform FindSceneGo(string name)
+	{
+		for (int i = 0; i < SceneManager.sceneCount; i++)
+		{
+			Scene sceneAt = SceneManager.GetSceneAt(i);
+			if (!sceneAt.isLoaded || !sceneAt.name.StartsWith("Terminal"))
+			{
+				continue;
+			}
+			GameObject[] rootGameObjects = sceneAt.GetRootGameObjects();
+			foreach (GameObject gameObject in rootGameObjects)
+			{
+				if (gameObject.name == name)
+				{
+					return gameObject.transform;
+				}
+				Transform transform = FindChildRecursive(gameObject.transform, name);
+				if (transform != null)
+				{
+					return transform;
+				}
+			}
+		}
+		return null;
+	}
 
-        // RAIN AUDIO HEAL (2026-08-15 probe verdict: blenders alive and driven,
-        // controller says Med, but _precipitationSource/_precipitationMixSource/
-        // _outputMixerGroup all NULL — they're engine AudioSources + a mixer-group
-        // ASSET, which the MonoBehaviour-focused ambient wiring can't resolve). the
-        // clip catalog is a second gap: PrecipitationAmbientBlender.Init pulls
-        // AmbientAudioSystem.Instance.AmbientSoundData (Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO),
-        // which our resurrected system builds EMPTY when its _ambientData asset is
-        // null (AmbientAudioSystem.cs:65). heal all three, then re-run Init.
-        private static bool _rainAudioHealed;
+	private static Transform FindChildRecursive(Transform t, string name)
+	{
+		for (int i = 0; i < t.childCount; i++)
+		{
+			Transform child = t.GetChild(i);
+			if (child.name == name)
+			{
+				return child;
+			}
+			Transform transform = FindChildRecursive(child, name);
+			if (transform != null)
+			{
+				return transform;
+			}
+		}
+		return null;
+	}
 
-        private static void TryHealRainAudio()
-        {
-            if (_rainAudioHealed) return;
-            try
-            {
-                var sys = MonoBehaviourSingleton<Audio.AmbientSubsystem.AmbientAudioSystem>.Instance;
-                if (!sys) return;
+	private static void IndexSubtree(Transform t, string path)
+	{
+		_pathIndex[path] = t;
+		for (int i = 0; i < t.childCount; i++)
+		{
+			Transform child = t.GetChild(i);
+			IndexSubtree(child, path + "/" + child.name);
+		}
+	}
 
-                // the clip catalog: any loaded Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO with actual
-                // content beats the empty CreateInstance fallback
-                if (!sys.AmbientSoundData || !HasPrecipClips(sys.AmbientSoundData))
-                {
-                    Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO best = null;
-                    foreach (var so in Resources.FindObjectsOfTypeAll<Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO>())
-                        if (so && HasPrecipClips(so)) { best = so; break; }
-                    if (best)
-                    {
-                        sys.AmbientSoundData = best;
-                        Plugin.Log.LogWarning($"[Weather] RAIN AUDIO heal: clip catalog '{best.name}' assigned to AmbientAudioSystem");
-                    }
-                    else
-                    {
-                        Plugin.Log.LogWarning(TerminalRainBed.Active
-                            ? "[Weather] RAIN AUDIO: season catalog is empty; shipped Terminal fallback bed is active"
-                            : "[Weather] RAIN AUDIO heal blocked: no populated Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO loaded "
-                                + "and the Terminal fallback bed is not ready");
-                        _rainAudioHealed = true; // nothing more to do this raid
-                        return;
-                    }
-                }
+	private static UnityEngine.Object ResolveRef(JObject tok, Type want)
+	{
+		long valueOrDefault = tok.Value<long?>("ref").GetValueOrDefault();
+		int valueOrDefault2 = tok.Value<int?>("file").GetValueOrDefault();
+		if (valueOrDefault == 0L)
+		{
+			return null;
+		}
+		if (valueOrDefault2 == 0)
+		{
+			if (_comps.TryGetValue(valueOrDefault, out var value))
+			{
+				if (!want.IsInstanceOfType(value))
+				{
+					if (!(want == typeof(GameObject)))
+					{
+						return value.GetComponent(want);
+					}
+					return value.gameObject;
+				}
+				return value;
+			}
+			JToken jToken = _sidecar?["scene_objects"]?[valueOrDefault.ToString()];
+			if (jToken != null && _pathIndex.TryGetValue(jToken.Value<string>("path") ?? "", out var value2))
+			{
+				if (want == typeof(GameObject))
+				{
+					return value2.gameObject;
+				}
+				if (want == typeof(Transform) || want.IsAssignableFrom(typeof(Transform)))
+				{
+					return value2;
+				}
+				if (typeof(Component).IsAssignableFrom(want))
+				{
+					return value2.GetComponent(want);
+				}
+			}
+			return null;
+		}
+		JToken jToken2 = _sidecar?["external_assets"]?[$"{valueOrDefault2}:{valueOrDefault}"];
+		if (jToken2 == null)
+		{
+			return null;
+		}
+		string text = jToken2.Value<string>("type");
+		string text2 = jToken2.Value<string>("name");
+		if (string.IsNullOrEmpty(text2))
+		{
+			return null;
+		}
+		if (text == "Shader")
+		{
+			return Shader.Find(text2);
+		}
+		if (text == "MonoBehaviour")
+		{
+			return GetOrBuildSettingsAsset(text2);
+		}
+		return FindAssetByName(text, text2);
+	}
 
-                // Use Tarkov's explicit outdoor ambience bus. Name-scanning could pick
-                // the parent "Ambient" group and bypass the exposed AmbientOut fader.
-                UnityEngine.Audio.AudioMixerGroup mixGroup = TerminalAudioRouting.AmbientBed();
+	private static UnityEngine.Object FindAssetByName(string unityType, string name)
+	{
+		string key = unityType + ":" + name;
+		if (_assetCache.TryGetValue(key, out var value))
+		{
+			return value;
+		}
+		Type type = unityType switch
+		{
+			"ComputeShader" => typeof(ComputeShader), 
+			"Texture2D" => typeof(Texture2D), 
+			"Mesh" => typeof(Mesh), 
+			"Material" => typeof(Material), 
+			_ => null, 
+		};
+		UnityEngine.Object obj = null;
+		if (type != null)
+		{
+			UnityEngine.Object[] array = Resources.FindObjectsOfTypeAll(type);
+			foreach (UnityEngine.Object obj2 in array)
+			{
+				if (obj2.name == name)
+				{
+					obj = obj2;
+					break;
+				}
+			}
+		}
+		if (obj == null && unityType == "Texture2D" && name == "circles")
+		{
+			obj = LoadTerminalRainRipple();
+		}
+		if (obj == null)
+		{
+			_missingAssets.Add(unityType + " '" + name + "'");
+		}
+		_assetCache[key] = obj;
+		return obj;
+	}
 
-                var fSrc = AccessTools.Field(typeof(Audio.AmbientSubsystem.PrecipitationAmbientBlender), "_precipitationSource");
-                var fMix = AccessTools.Field(typeof(Audio.AmbientSubsystem.PrecipitationAmbientBlender), "_precipitationMixSource");
-                var fOut = AccessTools.Field(typeof(Audio.AmbientSubsystem.PrecipitationAmbientBlender), "_outputMixerGroup");
-                int healed = 0;
-                foreach (var bl in Resources.FindObjectsOfTypeAll<Audio.AmbientSubsystem.PrecipitationAmbientBlender>())
-                {
-                    if (!bl || !bl.gameObject.scene.IsValid()) continue;
-                    if (fSrc != null && !(fSrc.GetValue(bl) as AudioSource))
-                        fSrc.SetValue(bl, MakeRainSource(bl.transform, "PrecipSource"));
-                    if (fMix != null && !(fMix.GetValue(bl) as AudioSource))
-                        fMix.SetValue(bl, MakeRainSource(bl.transform, "PrecipMixSource"));
-                    if (fOut != null && mixGroup && !(fOut.GetValue(bl) as UnityEngine.Audio.AudioMixerGroup))
-                        fOut.SetValue(bl, mixGroup);
-                    try { bl.Init(); healed++; }
-                    catch (Exception e) { Plugin.Log.LogWarning($"[Weather] blender '{bl.name}' re-Init failed: {e.Message}"); }
-                }
-                if (healed > 0)
-                {
-                    _rainAudioHealed = true;
-                    Plugin.Log.LogWarning($"[Weather] RAIN AUDIO heal: {healed} blender(s) given sources"
-                        + $"{(mixGroup ? $" + mixer '{mixGroup.name}'" : " (no ambient mixer group found — master out)")} and re-initialized");
-                }
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[Weather] rain audio heal failed: {e.Message}"); }
-        }
+	private static UnityEngine.Object GetOrBuildSettingsAsset(string name)
+	{
+		if (_settingsCache.TryGetValue(name, out var value))
+		{
+			return value;
+		}
+		UnityEngine.Object obj = null;
+		JToken jToken = _sidecar?["settings_assets"]?[name];
+		if (jToken != null)
+		{
+			Type type = AccessTools.TypeByName(jToken.Value<string>("class"));
+			if (type != null && typeof(ScriptableObject).IsAssignableFrom(type))
+			{
+				ScriptableObject scriptableObject = ScriptableObject.CreateInstance(type);
+				scriptableObject.name = name;
+				if (jToken["fields"] is JObject fields)
+				{
+					FillFields(scriptableObject, fields);
+				}
+				if (name == "CloudLayerSettings_main")
+				{
+					ApplyTerminalCloudSettings(type, scriptableObject);
+				}
+				obj = scriptableObject;
+			}
+		}
+		if (obj == null)
+		{
+			_missingAssets.Add("SettingsAsset '" + name + "'");
+		}
+		_settingsCache[name] = obj;
+		return obj;
+	}
 
-        private static bool HasPrecipClips(Audio.AmbientSubsystem.Data.SeasonAmbientSoundDataSO so)
-        {
-            // an SO with any rain clip for the common case = usable; the empty
-            // CreateInstance fallback fails this for every combination
-            try
-            {
-                AudioClip c;
-                return so.TryGetPrecipitationClip(ESeasonStatus.Summer,
-                    RainController.ERainIntensity.Med, EnvironmentType.Outdoor, out c) && c;
-            }
-            catch { return false; }
-        }
+	private static void ApplyTerminalCloudSettings(Type type, ScriptableObject so)
+	{
+		Set(so, "Opacity", 1f);
+		Set(so, "ShadowMultiplier", 1.09f);
+		Set(so, "ShadowTint", new Color(0.2264151f, 0.2264151f, 0.2264151f, 0f));
+		Set(so, "ShadowSize", 500f);
+		Set(so, "PlanetCenterRadius", new Vector4(0f, -6704000f, 0f, 6704000f));
+		object obj = AccessTools.Field(type, "LayerA")?.GetValue(so);
+		if (obj != null)
+		{
+			Texture2D texture2D = LoadTerminalCloudMap();
+			Set(obj, "CloudTexture", texture2D ? texture2D : Texture2D.grayTexture);
+			Set(obj, "Altitude", 6000f);
+			Set(obj, "Rotation", 191f);
+			Set(obj, "Tint", Color.white);
+			Set(obj, "Exposure", 2.1f);
+			Set(obj, "ScrollOrientation", 180f);
+			Set(obj, "MinScrollSpeed", 20f);
+			Set(obj, "MaxScrollSpeed", 100f);
+			Set(obj, "Lighting", true);
+			Set(obj, "Thickness", 1f);
+			Set(obj, "AmbientProbeDimmer", 0.675f);
+			Plugin.Log.LogWarning(texture2D ? $"[Weather] restored retail cloud layer with '{texture2D.name}' ({texture2D.width}x{texture2D.height})" : "[Weather] retail cloud PNG missing/unreadable — emergency gray fallback remains active");
+		}
+		static void Set(object target, string field, object value)
+		{
+			FieldInfo fieldInfo = AccessTools.Field(target.GetType(), field);
+			if (fieldInfo != null)
+			{
+				fieldInfo.SetValue(target, value);
+			}
+		}
+	}
 
-        private static AudioSource MakeRainSource(Transform parent, string name)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            var src = go.AddComponent<AudioSource>();
-            src.playOnAwake = false;
-            src.loop = true;
-            src.spatialBlend = 0f; // the precipitation bed is 2D ambience
-            src.volume = 1f;
-            TerminalAudioRouting.Route(src);
-            return src;
-        }
+	private static Texture2D LoadTerminalCloudMap()
+	{
+		if ((bool)_terminalCloudMap)
+		{
+			return _terminalCloudMap;
+		}
+		Texture2D[] array = Resources.FindObjectsOfTypeAll<Texture2D>();
+		foreach (Texture2D texture2D in array)
+		{
+			if ((bool)texture2D && texture2D.name == "CloudMapWoHorizonBorder2")
+			{
+				return _terminalCloudMap = texture2D;
+			}
+		}
+		try
+		{
+			string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "weather", "CloudMapWoHorizonBorder2.png");
+			if (!File.Exists(path))
+			{
+				return null;
+			}
+			Texture2D texture2D2 = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true, linear: false)
+			{
+				name = "CloudMapWoHorizonBorder2",
+				wrapMode = TextureWrapMode.Repeat,
+				filterMode = FilterMode.Trilinear,
+				anisoLevel = 1
+			};
+			if (!texture2D2.LoadImage(File.ReadAllBytes(path), markNonReadable: false))
+			{
+				UnityEngine.Object.Destroy(texture2D2);
+				return null;
+			}
+			return _terminalCloudMap = texture2D2;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Weather] cloud PNG load failed: " + ex.Message);
+			return null;
+		}
+	}
 
-        // ------------------------------------------------------------- scene lookup
-        private static Transform FindSceneGo(string name)
-        {
-            for (int i = 0; i < SceneManager.sceneCount; i++)
-            {
-                var scn = SceneManager.GetSceneAt(i);
-                if (!scn.isLoaded || !scn.name.StartsWith("Terminal")) continue;
-                foreach (var root in scn.GetRootGameObjects())
-                {
-                    if (root.name == name) return root.transform;
-                    var t = FindChildRecursive(root.transform, name);
-                    if (t != null) return t;
-                }
-            }
-            return null;
-        }
+	private static Texture2D LoadTerminalRainRipple()
+	{
+		if ((bool)_terminalRainRipple)
+		{
+			return _terminalRainRipple;
+		}
+		try
+		{
+			string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "water", "circles.png");
+			if (!File.Exists(path))
+			{
+				return null;
+			}
+			Texture2D texture2D = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true, linear: true)
+			{
+				name = "circles",
+				wrapMode = TextureWrapMode.Repeat,
+				filterMode = FilterMode.Bilinear,
+				anisoLevel = 1
+			};
+			if (!texture2D.LoadImage(File.ReadAllBytes(path), markNonReadable: false))
+			{
+				UnityEngine.Object.Destroy(texture2D);
+				return null;
+			}
+			texture2D.Apply(updateMipmaps: true, makeNoLongerReadable: false);
+			_terminalRainRipple = texture2D;
+			Plugin.Log.LogInfo("[Weather] restored retail rain ripple '" + texture2D.name + "' " + $"({texture2D.width}x{texture2D.height}, linear=true, wrap={texture2D.wrapMode}, " + $"filter={texture2D.filterMode}, aniso={texture2D.anisoLevel})");
+			return texture2D;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[Weather] rain ripple PNG load failed: " + ex.Message);
+			return null;
+		}
+	}
 
-        private static Transform FindChildRecursive(Transform t, string name)
-        {
-            for (int i = 0; i < t.childCount; i++)
-            {
-                var c = t.GetChild(i);
-                if (c.name == name) return c;
-                var r = FindChildRecursive(c, name);
-                if (r != null) return r;
-            }
-            return null;
-        }
+	private static void FillFields(object target, JObject fields)
+	{
+		Type type = target.GetType();
+		foreach (JProperty item in fields.Properties())
+		{
+			FieldInfo fieldInfo = AccessTools.Field(type, item.Name);
+			if (fieldInfo == null)
+			{
+				continue;
+			}
+			try
+			{
+				object obj = ConvertToken(item.Value, fieldInfo.FieldType, fieldInfo.GetValue(target));
+				if (obj != null || !fieldInfo.FieldType.IsValueType)
+				{
+					fieldInfo.SetValue(target, obj);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
 
-        private static void IndexSubtree(Transform t, string path)
-        {
-            _pathIndex[path] = t;
-            for (int i = 0; i < t.childCount; i++)
-            {
-                var c = t.GetChild(i);
-                IndexSubtree(c, path + "/" + c.name);
-            }
-        }
+	private static object ConvertToken(JToken tok, Type type, object existing)
+	{
+		if (tok == null || tok.Type == JTokenType.Null)
+		{
+			return null;
+		}
+		if (type == typeof(string))
+		{
+			return tok.Value<string>();
+		}
+		if (type == typeof(bool))
+		{
+			return (tok.Type == JTokenType.Boolean) ? tok.Value<bool>() : (tok.Value<int>() != 0);
+		}
+		if (type == typeof(short))
+		{
+			return (short)tok.Value<int>();
+		}
+		if (type.IsEnum)
+		{
+			return Enum.ToObject(type, tok.Value<long>());
+		}
+		if (type.IsPrimitive)
+		{
+			return Convert.ChangeType(((JValue)tok).Value, type, CultureInfo.InvariantCulture);
+		}
+		if (tok is JObject jObject)
+		{
+			if (jObject["extname"] != null)
+			{
+				return FindAssetByName(jObject.Value<string>("exttype"), jObject.Value<string>("extname"));
+			}
+			if (jObject["ref"] != null && jObject.Count <= 2)
+			{
+				if (!typeof(UnityEngine.Object).IsAssignableFrom(type))
+				{
+					return null;
+				}
+				return ResolveRef(jObject, type);
+			}
+			if (type == typeof(Vector2))
+			{
+				return new Vector2(jObject.Value<float>("x"), jObject.Value<float>("y"));
+			}
+			if (type == typeof(Vector3))
+			{
+				return new Vector3(jObject.Value<float>("x"), jObject.Value<float>("y"), jObject.Value<float>("z"));
+			}
+			if (type == typeof(Vector4))
+			{
+				return new Vector4(jObject.Value<float>("x"), jObject.Value<float>("y"), jObject.Value<float>("z"), jObject.Value<float>("w"));
+			}
+			if (type == typeof(Quaternion))
+			{
+				return new Quaternion(jObject.Value<float>("x"), jObject.Value<float>("y"), jObject.Value<float>("z"), jObject.Value<float>("w"));
+			}
+			if (type == typeof(Color))
+			{
+				return new Color(jObject.Value<float>("r"), jObject.Value<float>("g"), jObject.Value<float>("b"), jObject.Value<float>("a"));
+			}
+			if (type == typeof(Bounds))
+			{
+				return new Bounds((Vector3)ConvertToken(jObject["m_Center"], typeof(Vector3), null), (Vector3)ConvertToken(jObject["m_Extent"], typeof(Vector3), null) * 2f);
+			}
+			if (type == typeof(LayerMask))
+			{
+				return (LayerMask)jObject.Value<int?>("m_Bits").GetValueOrDefault();
+			}
+			if (type == typeof(AnimationCurve))
+			{
+				return BuildCurve(jObject) ?? existing;
+			}
+			if (type == typeof(Gradient))
+			{
+				return BuildGradient(jObject) ?? existing;
+			}
+			if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+			{
+				return null;
+			}
+			object obj = existing ?? Activator.CreateInstance(type);
+			FillFields(obj, jObject);
+			return obj;
+		}
+		if (tok is JArray jArray)
+		{
+			Type type2;
+			if (type.IsArray)
+			{
+				type2 = type.GetElementType();
+			}
+			else
+			{
+				type2 = ((type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) ? type.GetGenericArguments()[0] : null);
+			}
+			if (type2 == null)
+			{
+				return null;
+			}
+			List<object> list = new List<object>(jArray.Count);
+			foreach (JToken item in jArray)
+			{
+				list.Add(ConvertToken(item, type2, null));
+			}
+			if (type.IsArray)
+			{
+				Array array = Array.CreateInstance(type2, list.Count);
+				for (int i = 0; i < list.Count; i++)
+				{
+					array.SetValue(list[i], i);
+				}
+				return array;
+			}
+			IList list2 = (IList)Activator.CreateInstance(type);
+			{
+				foreach (object item2 in list)
+				{
+					list2.Add(item2);
+				}
+				return list2;
+			}
+		}
+		return null;
+	}
 
-        // ------------------------------------------------------------- ref resolution
-        private static UnityEngine.Object ResolveRef(JObject tok, Type want)
-        {
-            long id = tok.Value<long?>("ref") ?? 0;
-            int file = tok.Value<int?>("file") ?? 0;
-            if (id == 0) return null;
+	private static AnimationCurve BuildCurve(JObject o)
+	{
+		return TerminalSerializedCurves.FromUnity(o);
+	}
 
-            if (file == 0)
-            {
-                // scene-local: a rebuilt component, or an engine object from the table
-                if (_comps.TryGetValue(id, out var c))
-                    return want.IsInstanceOfType(c) ? c
-                        : want == typeof(GameObject) ? (UnityEngine.Object)c.gameObject
-                        : c.GetComponent(want);
-                var so = _sidecar?["scene_objects"]?[id.ToString()];
-                if (so != null && _pathIndex.TryGetValue(so.Value<string>("path") ?? "", out var t))
-                {
-                    if (want == typeof(GameObject)) return t.gameObject;
-                    if (want == typeof(Transform) || want.IsAssignableFrom(typeof(Transform))) return t;
-                    if (typeof(Component).IsAssignableFrom(want)) return t.GetComponent(want);
-                }
-                return null;
-            }
-
-            // external asset: resolve by recovered type+name
-            var ext = _sidecar?["external_assets"]?[$"{file}:{id}"];
-            if (ext == null) return null;
-            string etype = ext.Value<string>("type"), name = ext.Value<string>("name");
-            if (string.IsNullOrEmpty(name)) return null;
-
-            if (etype == "Shader") return Shader.Find(name);
-            if (etype == "MonoBehaviour") return GetOrBuildSettingsAsset(name);
-            return FindAssetByName(etype, name);
-        }
-
-        private static UnityEngine.Object FindAssetByName(string unityType, string name)
-        {
-            string key = unityType + ":" + name;
-            if (_assetCache.TryGetValue(key, out var cached)) return cached;
-            Type t = unityType == "Material" ? typeof(Material)
-                : unityType == "Mesh" ? typeof(Mesh)
-                : unityType == "Texture2D" ? typeof(Texture2D)
-                : unityType == "ComputeShader" ? typeof(ComputeShader)
-                : null;
-            UnityEngine.Object found = null;
-            if (t != null)
-                foreach (var o in Resources.FindObjectsOfTypeAll(t))
-                    if (o.name == name) { found = o; break; }
-            if (found == null) _missingAssets.Add($"{unityType} '{name}'");
-            _assetCache[key] = found;
-            return found;
-        }
-
-        // settings assets (fog remap tables, cloud settings) — rebuilt from values,
-        // exactly like the acoustics occlusion preset
-        private static UnityEngine.Object GetOrBuildSettingsAsset(string name)
-        {
-            if (_settingsCache.TryGetValue(name, out var cached)) return cached;
-            UnityEngine.Object result = null;
-            var entry = _sidecar?["settings_assets"]?[name];
-            if (entry != null)
-            {
-                var type = AccessTools.TypeByName(entry.Value<string>("class"));
-                if (type != null && typeof(ScriptableObject).IsAssignableFrom(type))
-                {
-                    var so = ScriptableObject.CreateInstance(type);
-                    so.name = name;
-                    if (entry["fields"] is JObject f) FillFields(so, f);
-                    // Terminal's old Mono typetree decoded this retail settings asset one
-                    // field out of alignment (Altitude became Rotation, Rotation became
-                    // Tint.r, etc.). Icebreaker's independently recovered copy is the same
-                    // CloudLayerSettings_main asset and provides the intact layout. Apply
-                    // those values explicitly and load the real lat/long cloud map shipped
-                    // in plugin-data. A flat gray fallback cannot form cloud shapes at all.
-                    if (name == "CloudLayerSettings_main") ApplyTerminalCloudSettings(type, so);
-                    result = so;
-                }
-            }
-            if (result == null) _missingAssets.Add($"SettingsAsset '{name}'");
-            _settingsCache[name] = result;
-            return result;
-        }
-
-        private static void ApplyTerminalCloudSettings(Type type, ScriptableObject so)
-        {
-            void Set(object target, string field, object value)
-            {
-                var fi = AccessTools.Field(target.GetType(), field);
-                if (fi != null) fi.SetValue(target, value);
-            }
-
-            Set(so, "Opacity", 1f);
-            Set(so, "ShadowMultiplier", 1.09f);
-            Set(so, "ShadowTint", new Color(0.2264151f, 0.2264151f, 0.2264151f, 0f));
-            Set(so, "ShadowSize", 500f);
-            Set(so, "PlanetCenterRadius", new Vector4(0f, -6704000f, 0f, 6704000f));
-
-            var layerA = AccessTools.Field(type, "LayerA")?.GetValue(so);
-            if (layerA == null) return;
-            var cloudMap = LoadTerminalCloudMap();
-            Set(layerA, "CloudTexture", cloudMap ? cloudMap : Texture2D.grayTexture);
-            Set(layerA, "Altitude", 6000f);
-            Set(layerA, "Rotation", 191f);
-            Set(layerA, "Tint", Color.white);
-            Set(layerA, "Exposure", 2.1f);
-            Set(layerA, "ScrollOrientation", 180f);
-            Set(layerA, "MinScrollSpeed", 20f);
-            Set(layerA, "MaxScrollSpeed", 100f);
-            Set(layerA, "Lighting", true);
-            Set(layerA, "Thickness", 1f);
-            Set(layerA, "AmbientProbeDimmer", 0.675f);
-
-            Plugin.Log.LogWarning(cloudMap
-                ? $"[Weather] restored retail cloud layer with '{cloudMap.name}' ({cloudMap.width}x{cloudMap.height})"
-                : "[Weather] retail cloud PNG missing/unreadable — emergency gray fallback remains active");
-        }
-
-        private static Texture2D LoadTerminalCloudMap()
-        {
-            if (_terminalCloudMap) return _terminalCloudMap;
-
-            // Prefer an already-loaded native copy if another location/mod supplied it.
-            foreach (var tex in Resources.FindObjectsOfTypeAll<Texture2D>())
-                if (tex && tex.name == "CloudMapWoHorizonBorder2")
-                    return _terminalCloudMap = tex;
-
-            try
-            {
-                string path = System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                    "plugin-data", "weather", "CloudMapWoHorizonBorder2.png");
-                if (!System.IO.File.Exists(path)) return null;
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true, false)
-                {
-                    name = "CloudMapWoHorizonBorder2",
-                    wrapMode = TextureWrapMode.Repeat,
-                    filterMode = FilterMode.Trilinear,
-                    anisoLevel = 1,
-                };
-                if (!ImageConversion.LoadImage(tex, System.IO.File.ReadAllBytes(path), false))
-                {
-                    UnityEngine.Object.Destroy(tex);
-                    return null;
-                }
-                return _terminalCloudMap = tex;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Weather] cloud PNG load failed: {e.Message}");
-                return null;
-            }
-        }
-
-        // ------------------------------------------------------------- generic filler
-        private static void FillFields(object target, JObject fields)
-        {
-            var type = target.GetType();
-            foreach (var prop in fields.Properties())
-            {
-                var fi = AccessTools.Field(type, prop.Name);
-                if (fi == null) continue;
-                try
-                {
-                    var v = ConvertToken(prop.Value, fi.FieldType, fi.GetValue(target));
-                    if (v != null || !fi.FieldType.IsValueType) fi.SetValue(target, v);
-                }
-                catch { /* field drifted or unresolvable — keep the class default */ }
-            }
-        }
-
-        private static object ConvertToken(JToken tok, Type type, object existing)
-        {
-            if (tok == null || tok.Type == JTokenType.Null) return null;
-
-            if (type == typeof(string)) return tok.Value<string>();
-            if (type == typeof(bool)) return tok.Type == JTokenType.Boolean ? tok.Value<bool>() : tok.Value<int>() != 0;
-            if (type == typeof(short)) return (short)tok.Value<int>();
-            if (type.IsEnum) return Enum.ToObject(type, tok.Value<long>());
-            if (type.IsPrimitive) return Convert.ChangeType(((JValue)tok).Value, type,
-                System.Globalization.CultureInfo.InvariantCulture);
-
-            if (tok is JObject o)
-            {
-                // by-name external token (refs inside settings assets, rewritten during
-                // enrichment because their externals table differs from level600's)
-                if (o["extname"] != null)
-                    return FindAssetByName(o.Value<string>("exttype"), o.Value<string>("extname"));
-                if (o["ref"] != null && o.Count <= 2)
-                    return typeof(UnityEngine.Object).IsAssignableFrom(type) ? ResolveRef(o, type) : null;
-                if (type == typeof(Vector2)) return new Vector2(o.Value<float>("x"), o.Value<float>("y"));
-                if (type == typeof(Vector3)) return new Vector3(o.Value<float>("x"), o.Value<float>("y"), o.Value<float>("z"));
-                if (type == typeof(Vector4)) return new Vector4(o.Value<float>("x"), o.Value<float>("y"), o.Value<float>("z"), o.Value<float>("w"));
-                if (type == typeof(Quaternion)) return new Quaternion(o.Value<float>("x"), o.Value<float>("y"), o.Value<float>("z"), o.Value<float>("w"));
-                if (type == typeof(Color)) return new Color(o.Value<float>("r"), o.Value<float>("g"), o.Value<float>("b"), o.Value<float>("a"));
-                if (type == typeof(Bounds)) return new Bounds(
-                    (Vector3)ConvertToken(o["m_Center"], typeof(Vector3), null),
-                    (Vector3)ConvertToken(o["m_Extent"], typeof(Vector3), null) * 2f);
-                if (type == typeof(LayerMask)) return (LayerMask)(o.Value<int?>("m_Bits") ?? 0);
-                if (type == typeof(AnimationCurve)) return BuildCurve(o) ?? existing;
-                if (type == typeof(Gradient)) return BuildGradient(o) ?? existing;
-                if (typeof(UnityEngine.Object).IsAssignableFrom(type)) return null; // unresolvable object shape
-                var inst = existing ?? Activator.CreateInstance(type);
-                FillFields(inst, o);
-                return inst;
-            }
-
-            if (tok is JArray arr)
-            {
-                Type elem = type.IsArray ? type.GetElementType()
-                    : type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) ? type.GetGenericArguments()[0]
-                    : null;
-                if (elem == null) return null;
-                var items = new List<object>(arr.Count);
-                foreach (var e in arr)
-                    items.Add(ConvertToken(e, elem, null));
-                if (type.IsArray)
-                {
-                    var a = Array.CreateInstance(elem, items.Count);
-                    for (int i = 0; i < items.Count; i++) a.SetValue(items[i], i);
-                    return a;
-                }
-                var list = (System.Collections.IList)Activator.CreateInstance(type);
-                foreach (var it in items) list.Add(it);
-                return list;
-            }
-            return null;
-        }
-
-        private static AnimationCurve BuildCurve(JObject o)
-        {
-            return TerminalSerializedCurves.FromUnity(o);
-        }
-
-        // unity's serialized gradient: key0..key7 colors, ctime0..7 / atime0..7 as 0..65535
-        private static Gradient BuildGradient(JObject o)
-        {
-            if (o["ctime0"] == null && o["key0"] == null) return null;
-            int nc = o.Value<int?>("m_NumColorKeys") ?? 2;
-            int na = o.Value<int?>("m_NumAlphaKeys") ?? 2;
-            var colors = new GradientColorKey[Mathf.Clamp(nc, 1, 8)];
-            var alphas = new GradientAlphaKey[Mathf.Clamp(na, 1, 8)];
-            for (int i = 0; i < colors.Length; i++)
-            {
-                var col = o[$"key{i}"] is JObject k
-                    ? new Color(k.Value<float>("r"), k.Value<float>("g"), k.Value<float>("b"), k.Value<float>("a"))
-                    : Color.white;
-                colors[i] = new GradientColorKey(col, (o.Value<int?>($"ctime{i}") ?? 0) / 65535f);
-            }
-            for (int i = 0; i < alphas.Length; i++)
-            {
-                var col = o[$"key{i}"] is JObject k ? k.Value<float>("a") : 1f;
-                alphas[i] = new GradientAlphaKey(col, (o.Value<int?>($"atime{i}") ?? 0) / 65535f);
-            }
-            var g = new Gradient();
-            g.SetKeys(colors, alphas);
-            g.mode = (GradientMode)(o.Value<int?>("m_Mode") ?? 0);
-            return g;
-        }
-    }
+	private static Gradient BuildGradient(JObject o)
+	{
+		if (o["ctime0"] == null && o["key0"] == null)
+		{
+			return null;
+		}
+		int value = o.Value<int?>("m_NumColorKeys") ?? 2;
+		int value2 = o.Value<int?>("m_NumAlphaKeys") ?? 2;
+		GradientColorKey[] array = new GradientColorKey[Mathf.Clamp(value, 1, 8)];
+		GradientAlphaKey[] array2 = new GradientAlphaKey[Mathf.Clamp(value2, 1, 8)];
+		for (int i = 0; i < array.Length; i++)
+		{
+			Color col = ((o[$"key{i}"] is JObject jObject) ? new Color(jObject.Value<float>("r"), jObject.Value<float>("g"), jObject.Value<float>("b"), jObject.Value<float>("a")) : Color.white);
+			array[i] = new GradientColorKey(col, (float)o.Value<int?>($"ctime{i}").GetValueOrDefault() / 65535f);
+		}
+		for (int j = 0; j < array2.Length; j++)
+		{
+			float alpha = ((o[$"key{j}"] is JObject jObject2) ? jObject2.Value<float>("a") : 1f);
+			array2[j] = new GradientAlphaKey(alpha, (float)o.Value<int?>($"atime{j}").GetValueOrDefault() / 65535f);
+		}
+		Gradient gradient = new Gradient();
+		gradient.SetKeys(array, array2);
+		gradient.mode = (GradientMode)o.Value<int?>("m_Mode").GetValueOrDefault();
+		return gradient;
+	}
 }

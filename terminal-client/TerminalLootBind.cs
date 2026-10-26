@@ -2,160 +2,197 @@ using System;
 using System.Collections;
 using System.Reflection;
 using EFT;
+using EFT.Game.Spawning;
 using EFT.Interactive;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalLootBind
 {
-    // CONTAINER LOOT BIND DEFERRAL (raid reports 2026-08-18: search prompt works,
-    // window never opens, gear tax 'no bound valberg safe', 281x 'container_X is
-    // missing'): GameWorld.method_5 matches server container loot to scene
-    // containers via LocationScene.GetAllObjects — enabled-only, registry-built at
-    // LocationScene.Awake. on this map the bind was racing scene activation: the
-    // registries were empty when the loot arrived, every container logged missing,
-    // nothing ever bound (loose loot is position-spawned and survived — the exact
-    // observed split). hold the bind until Design_Stuff's registry is live.
-    internal static class TerminalLootBind
-    {
-        private static bool _passThrough;
+	[HarmonyPatch(typeof(GameWorld), "SpawnLoot")]
+	internal static class Patch_DeferLootBind
+	{
+		[HarmonyPrefix]
+		private static bool Prefix(GameWorld __instance, object[] __args)
+		{
+			try
+			{
+				if (!TerminalGate.On || _passThrough)
+				{
+					return true;
+				}
+				TerminalContainerTemplates.ApplyLoadedContainers();
+				int num = BiggestContainerRegistry();
+				if (num >= 150)
+				{
+					return true;
+				}
+				Plugin.Log.LogWarning("[LootBind] loot arrived before the scene registries " + $"(biggest container registry: {num}) — DEFERRING the bind");
+				DeferHost deferHost = new GameObject("Terminal_LootBindDefer").AddComponent<DeferHost>();
+				deferHost.Game = __instance;
+				deferHost.Args = __args;
+				return false;
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[LootBind] prefix threw, binding normally: " + ex.Message);
+				return true;
+			}
+		}
+	}
 
-        internal static void ResetForRaid() => _passThrough = false;
+	internal class DeferHost : MonoBehaviour
+	{
+		public GameWorld Game;
 
-        private static int BiggestContainerRegistry()
-        {
-            int best = 0;
-            try
-            {
-                foreach (var ls in LocationScene.LoadedScenes)
-                {
-                    if (ls == null || ls.LootableContainers == null) continue;
-                    int alive = 0;
-                    foreach (var c in ls.LootableContainers) if (c) alive++;
-                    if (alive > best) best = alive;
-                }
-            }
-            catch { }
-            return best;
-        }
+		public object[] Args;
 
-        [HarmonyPatch(typeof(GameWorld), "SpawnLoot")]
-        internal static class Patch_DeferLootBind
-        {
-            [HarmonyPrefix]
-            private static bool Prefix(GameWorld __instance, object[] __args)
-            {
-                try
-                {
-                    if (!TerminalGate.On || _passThrough) return true;
-                    TerminalContainerTemplates.ApplyLoadedContainers();
-                    int have = BiggestContainerRegistry();
-                    // Design_Stuff alone carries 282 containers — a registry that big
-                    // means the scenes are awake and the bind is safe
-                    if (have >= 150) return true;
-                    Plugin.Log.LogWarning($"[LootBind] loot arrived before the scene registries "
-                        + $"(biggest container registry: {have}) — DEFERRING the bind");
-                    var host = new GameObject("Terminal_LootBindDefer").AddComponent<DeferHost>();
-                    host.Game = __instance;
-                    host.Args = __args;
-                    return false;
-                }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogWarning($"[LootBind] prefix threw, binding normally: {e.Message}");
-                    return true;
-                }
-            }
-        }
+		private void Start()
+		{
+			StartCoroutine(Run());
+		}
 
-        internal class DeferHost : MonoBehaviour
-        {
-            public GameWorld Game;
-            public object[] Args;
+		private IEnumerator Run()
+		{
+			float deadline = Time.realtimeSinceStartup + 6f;
+			while (Time.realtimeSinceStartup < deadline && BiggestContainerRegistry() < 150)
+			{
+				yield return null;
+			}
+			if (BiggestContainerRegistry() < 150)
+			{
+				DumpAuthoredState();
+				BuildSyntheticRegistry();
+				yield return null;
+			}
+			int num = BiggestContainerRegistry();
+			Plugin.Log.LogInfo($"[LootBind] releasing the deferred bind (registry: {num})");
+			try
+			{
+				_passThrough = true;
+				AccessTools.Method(typeof(GameWorld), "SpawnLoot").Invoke(Game, Args);
+			}
+			catch (Exception arg)
+			{
+				Plugin.Log.LogError($"[LootBind] deferred bind FAILED: {arg}");
+			}
+			finally
+			{
+				_passThrough = false;
+			}
+			UnityEngine.Object.Destroy(gameObject);
+		}
 
-            private void Start() => StartCoroutine(Run());
+		private static void DumpAuthoredState()
+		{
+			try
+			{
+				Scene sceneByName = SceneManager.GetSceneByName("Terminal_Design_Stuff");
+				if (!sceneByName.IsValid() || !sceneByName.isLoaded)
+				{
+					Plugin.Log.LogWarning("[LootBind] Design_Stuff scene not loaded?!");
+					return;
+				}
+				GameObject[] rootGameObjects = sceneByName.GetRootGameObjects();
+				foreach (GameObject gameObject in rootGameObjects)
+				{
+					if (gameObject.name != "Location_scene")
+					{
+						continue;
+					}
+					Component[] components = gameObject.GetComponents<Component>();
+					int num = 0;
+					Component[] array = components;
+					for (int j = 0; j < array.Length; j++)
+					{
+						if (array[j] == null)
+						{
+							num++;
+						}
+					}
+					LocationScene component = gameObject.GetComponent<LocationScene>();
+					Plugin.Log.LogWarning($"[LootBind] authored Location_scene: active={gameObject.activeInHierarchy} " + string.Format("comps={0} nullComps={1} LocationScene={2}", components.Length, num, component ? $"alive enabled={component.enabled} containers={component.LootableContainers?.Length ?? (-1)}" : "MISSING/HUSK"));
+					return;
+				}
+				Plugin.Log.LogWarning("[LootBind] no 'Location_scene' root in Design_Stuff at runtime");
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[LootBind] state dump failed: " + ex.Message);
+			}
+		}
 
-            private IEnumerator Run()
-            {
-                // short grace for a late-but-healthy registration
-                float deadline = Time.realtimeSinceStartup + 6f;
-                while (Time.realtimeSinceStartup < deadline && BiggestContainerRegistry() < 150)
-                    yield return null;
+		private static void BuildSyntheticRegistry()
+		{
+			try
+			{
+				GameObject gameObject = new GameObject("Terminal_SyntheticLocationScene");
+				gameObject.SetActive(value: false);
+				LocationScene locationScene = gameObject.AddComponent<LocationScene>();
+				locationScene.LootableContainers = UnityEngine.Object.FindObjectsOfType<LootableContainer>(includeInactive: true);
+				locationScene.StaticLoot = UnityEngine.Object.FindObjectsOfType<StaticLoot>(includeInactive: true);
+				locationScene.WorldInteractiveObjects = UnityEngine.Object.FindObjectsOfType<WorldInteractiveObject>(includeInactive: true);
+				locationScene.SyncAbles = Array.Empty<ISyncAble>();
+				locationScene.TriggerEntities = Array.Empty<GameObject>();
+				locationScene.ControlledLampGroups = Array.Empty<ControlledLampGroup>();
+				locationScene.NavMeshLinks = Array.Empty<NavMeshDoorLink>();
+				locationScene.SpawnPointMarkers = Array.Empty<SpawnPointMarker>();
+				locationScene.BotZones = Array.Empty<BotZone>();
+				locationScene.ExfiltrationPoints = Array.Empty<ExfiltrationPoint>();
+				FieldInfo fieldInfo = AccessTools.Field(typeof(LocationScene), "AIPlaceInfos");
+				if (fieldInfo != null && fieldInfo.GetValue(locationScene) == null)
+				{
+					fieldInfo.SetValue(locationScene, Array.CreateInstance(fieldInfo.FieldType.GetElementType(), 0));
+				}
+				gameObject.SetActive(value: true);
+				Plugin.Log.LogWarning($"[LootBind] SYNTHETIC registry built: {locationScene.LootableContainers.Length} containers, " + $"{locationScene.StaticLoot.Length} static loot, {locationScene.WorldInteractiveObjects.Length} interactives");
+			}
+			catch (Exception arg)
+			{
+				Plugin.Log.LogError($"[LootBind] synthetic registry FAILED: {arg}");
+			}
+		}
+	}
 
-                if (BiggestContainerRegistry() < 150)
-                {
-                    DumpAuthoredState();
-                    BuildSyntheticRegistry();
-                    yield return null; // let the synthetic Awake run
-                }
+	private static bool _passThrough;
 
-                int have = BiggestContainerRegistry();
-                Plugin.Log.LogInfo($"[LootBind] releasing the deferred bind (registry: {have})");
-                try
-                {
-                    _passThrough = true;
-                    AccessTools.Method(typeof(GameWorld), "SpawnLoot").Invoke(Game, Args);
-                }
-                catch (Exception e) { Plugin.Log.LogError($"[LootBind] deferred bind FAILED: {e}"); }
-                finally { _passThrough = false; }
-                Destroy(gameObject);
-            }
+	internal static void ResetForRaid()
+	{
+		_passThrough = false;
+	}
 
-            // root-cause forensics: what does the authored Location_scene look like
-            // at runtime (2026-08-18: bundle data perfect, runtime registry empty)
-            private static void DumpAuthoredState()
-            {
-                try
-                {
-                    var scn = UnityEngine.SceneManagement.SceneManager.GetSceneByName("Terminal_Design_Stuff");
-                    if (!scn.IsValid() || !scn.isLoaded) { Plugin.Log.LogWarning("[LootBind] Design_Stuff scene not loaded?!"); return; }
-                    foreach (var root in scn.GetRootGameObjects())
-                    {
-                        if (root.name != "Location_scene") continue;
-                        var comps = root.GetComponents<Component>();
-                        int nulls = 0;
-                        foreach (var c in comps) if (c == null) nulls++;
-                        var ls = root.GetComponent<LocationScene>();
-                        Plugin.Log.LogWarning($"[LootBind] authored Location_scene: active={root.activeInHierarchy} "
-                            + $"comps={comps.Length} nullComps={nulls} LocationScene={(ls ? $"alive enabled={ls.enabled} containers={(ls.LootableContainers?.Length ?? -1)}" : "MISSING/HUSK")}");
-                        return;
-                    }
-                    Plugin.Log.LogWarning("[LootBind] no 'Location_scene' root in Design_Stuff at runtime");
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"[LootBind] state dump failed: {e.Message}"); }
-            }
-
-            // the authored registry is dead — rebuild it from the live scene objects
-            // (they all exist: prompts raycast them fine). inactive-GO build so the
-            // arrays are set before Awake registers them.
-            private static void BuildSyntheticRegistry()
-            {
-                try
-                {
-                    var go = new GameObject("Terminal_SyntheticLocationScene");
-                    go.SetActive(false);
-                    var ls = go.AddComponent<LocationScene>();
-                    ls.LootableContainers = UnityEngine.Object.FindObjectsOfType<LootableContainer>(true);
-                    ls.StaticLoot = UnityEngine.Object.FindObjectsOfType<StaticLoot>(true);
-                    ls.WorldInteractiveObjects = UnityEngine.Object.FindObjectsOfType<WorldInteractiveObject>(true);
-                    // everything else empty on purpose — bots/exfils/lamps are long
-                    // initialized by now, and Awake NREs on null arrays
-                    ls.SyncAbles = Array.Empty<ISyncAble>();
-                    ls.TriggerEntities = Array.Empty<GameObject>();
-                    ls.ControlledLampGroups = Array.Empty<ControlledLampGroup>();
-                    ls.NavMeshLinks = Array.Empty<NavMeshDoorLink>();
-                    ls.SpawnPointMarkers = Array.Empty<EFT.Game.Spawning.SpawnPointMarker>();
-                    ls.BotZones = Array.Empty<BotZone>();
-                    ls.ExfiltrationPoints = Array.Empty<ExfiltrationPoint>();
-                    var aiField = AccessTools.Field(typeof(LocationScene), "AIPlaceInfos");
-                    if (aiField != null && aiField.GetValue(ls) == null)
-                        aiField.SetValue(ls, Array.CreateInstance(aiField.FieldType.GetElementType(), 0));
-                    go.SetActive(true); // Awake registers the rebuilt arrays
-                    Plugin.Log.LogWarning($"[LootBind] SYNTHETIC registry built: {ls.LootableContainers.Length} containers, "
-                        + $"{ls.StaticLoot.Length} static loot, {ls.WorldInteractiveObjects.Length} interactives");
-                }
-                catch (Exception e) { Plugin.Log.LogError($"[LootBind] synthetic registry FAILED: {e}"); }
-            }
-        }
-    }
+	private static int BiggestContainerRegistry()
+	{
+		int num = 0;
+		try
+		{
+			foreach (LocationScene loadedScene in LocationScene.LoadedScenes)
+			{
+				if (loadedScene == null || loadedScene.LootableContainers == null)
+				{
+					continue;
+				}
+				int num2 = 0;
+				LootableContainer[] lootableContainers = loadedScene.LootableContainers;
+				for (int i = 0; i < lootableContainers.Length; i++)
+				{
+					if ((bool)lootableContainers[i])
+					{
+						num2++;
+					}
+				}
+				if (num2 > num)
+				{
+					num = num2;
+				}
+			}
+		}
+		catch
+		{
+		}
+		return num;
+	}
 }

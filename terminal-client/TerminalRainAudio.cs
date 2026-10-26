@@ -1,256 +1,353 @@
 using System;
-using System.Collections;
-using System.IO;
+using System.Collections.Generic;
+using System.Reflection;
 using Audio.AmbientSubsystem;
 using Audio.AmbientSubsystem.Data;
-using EFT.EnvironmentEffect;
-using HarmonyLib;
+using Comfort.Common;
+using EFT;
+using EFT.Settings.Sound;
+using EFT.Weather;
 using UnityEngine;
-using UnityEngine.Networking;
-using UnityEngine.SceneManagement;
+using UnityEngine.Audio;
+using ZLinq;
+using ZLinq.Linq;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalRainAudio
 {
-    // RAIN AMBIENT SOUND (user report, twice): the PrecipitationAmbientBlenders in
-    // our rebuilt ambient layer sit with NULL AudioSources/mixer, and their Init()
-    // pulls the season sound data from AmbientAudioSystem.AmbientSoundData — also
-    // null in the rebuild. this pass fills all of it: donor SeasonAmbientSoundDataSO
-    // from loaded resources, two AudioSources per blender, an ambience mixer group,
-    // then re-runs Init. every step logs so a miss names itself.
-    internal static class TerminalRainAudio
-    {
-        private static bool _staged;
+	internal sealed class RainBlendProfile
+	{
+		internal float CrossfadeDuration = 1f;
 
-        internal static void ResetForRaid()
-        {
-            _staged = false;
-            TerminalRainBed.ResetForRaid();
-        }
+		internal float BlendSpeed = 1f;
 
-        internal static void TryStage()
-        {
-            if (_staged || !TerminalGate.On) return;
-            var sys = MonoBehaviourSingleton<AmbientAudioSystem>.Instantiated
-                ? MonoBehaviourSingleton<AmbientAudioSystem>.Instance : null;
-            if (sys == null) return; // ambient layer not staged yet
-            var blenders = UnityEngine.Object.FindObjectsOfType<PrecipitationAmbientBlender>(true);
-            if (blenders.Length == 0) return;
-            _staged = true;
+		internal float DynamicCrossfadeDuration = 1f;
 
-            try
-            {
-                // season sound data: the system's own, else any loaded donor SO
-                object soData = sys.AmbientSoundData;
-                if (soData == null)
-                {
-                    var sos = Resources.FindObjectsOfTypeAll<SeasonAmbientSoundDataSO>();
-                    if (sos.Length > 0)
-                    {
-                        soData = sos[0];
-                        sys.AmbientSoundData = sos[0];
-                    }
-                }
-                bool catalogUsable = HasPrecipitationClips(soData as SeasonAmbientSoundDataSO);
-                Plugin.Log.LogInfo($"[RainAudio] season sound data: {(soData != null ? soData.ToString() : "NONE LOADED")} "
-                    + $"({(catalogUsable ? "precipitation clips present" : "empty precipitation catalog — Terminal fallback bed enabled")})");
-                if (!catalogUsable) TerminalRainBed.Ensure();
+		internal float DynamicBlendSpeed = 1f;
 
-                UnityEngine.Audio.AudioMixerGroup mixer = TerminalAudioRouting.AmbientBed();
+		internal float MaxVolumeCheckDelta = 0.05f;
+	}
 
-                int fixedN = 0;
-                foreach (var b in blenders)
-                {
-                    var fSrc = AccessTools.Field(typeof(PrecipitationAmbientBlender), "_precipitationSource");
-                    var fMix = AccessTools.Field(typeof(PrecipitationAmbientBlender), "_precipitationMixSource");
-                    var fOut = AccessTools.Field(typeof(PrecipitationAmbientBlender), "_outputMixerGroup");
-                    if (fSrc.GetValue(b) == null)
-                    {
-                        var s1 = b.gameObject.AddComponent<AudioSource>();
-                        s1.playOnAwake = false; s1.loop = true; s1.spatialBlend = 0f;
-                        TerminalAudioRouting.Route(s1);
-                        fSrc.SetValue(b, s1);
-                    }
-                    if (fMix.GetValue(b) == null)
-                    {
-                        var s2 = b.gameObject.AddComponent<AudioSource>();
-                        s2.playOnAwake = false; s2.loop = true; s2.spatialBlend = 0f;
-                        TerminalAudioRouting.Route(s2);
-                        fMix.SetValue(b, s2);
-                    }
-                    if (fOut.GetValue(b) == null && mixer != null) fOut.SetValue(b, mixer);
-                    try { b.Init(); fixedN++; }
-                    catch (Exception ie) { Plugin.Log.LogWarning($"[RainAudio] blender '{b.gameObject.name}' Init threw: {ie.Message}"); }
-                }
-                Plugin.Log.LogInfo($"[RainAudio] {fixedN}/{blenders.Length} precipitation blender(s) wired "
-                    + $"(mixer: {(mixer ? mixer.name : "none")})");
-            }
-            catch (Exception e) { Plugin.Log.LogWarning($"[RainAudio] staging failed: {e}"); }
-        }
+	private static bool _nativeActive;
 
-        private static bool HasPrecipitationClips(SeasonAmbientSoundDataSO data)
-        {
-            if (!data) return false;
-            try
-            {
-                AudioClip clip;
-                return data.TryGetPrecipitationClip(ESeasonStatus.Summer,
-                    RainController.ERainIntensity.Med, EnvironmentType.Outdoor, out clip) && clip;
-            }
-            catch { return false; }
-        }
-    }
+	private static float _nextStageProbeAt;
 
-    // The retail map references precipitation through a SeasonAmbientSoundDataSO that
-    // is not part of the custom location bundle.  The reconstructed object consequently
-    // exists but contains no clips, so perfectly healthy blenders crossfade NULL forever.
-    // Ship Terminal's recovered retail indoor/outdoor rain loops and drive them from the
-    // real RainController instead. This remains a fallback: a populated game catalog wins.
-    internal sealed class TerminalRainBed : MonoBehaviour
-    {
-        private static TerminalRainBed _instance;
-        private AudioSource _outdoor;
-        private AudioSource _indoor;
-        private bool _ready;
-        private bool _reportedLive;
-        private bool _selectorInitialised;
-        private bool _resolvedIndoors;
-        private bool _candidateIndoors;
-        private float _candidateSince;
+	private static PrecipitationAmbientBlender[] _raidBlenders = new PrecipitationAmbientBlender[0];
 
-        internal static bool Active => _instance && _instance._ready;
+	private static readonly Dictionary<AudioSource, bool> NativeMuteStates = new Dictionary<AudioSource, bool>();
 
-        internal static void ResetForRaid() => _instance = null;
+	private const BindingFlags NativeFields = BindingFlags.Instance | BindingFlags.NonPublic;
 
-        internal static void Ensure()
-        {
-            if (_instance || !TerminalGate.On) return;
-            var go = new GameObject("Terminal_RainAudioFallback");
-            var scripts = SceneManager.GetSceneByName("Terminal_Scripts");
-            if (scripts.IsValid() && scripts.isLoaded) SceneManager.MoveGameObjectToScene(go, scripts);
-            _instance = go.AddComponent<TerminalRainBed>();
-        }
+	private static readonly FieldInfo SoundBlendersField = typeof(AmbientAudioSystem).GetField("_soundBlenders", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private void Awake()
-        {
-            _outdoor = MakeSource("OutdoorRain");
-            _indoor = MakeSource("IndoorRain");
-            StartCoroutine(Load());
-        }
+	private static readonly FieldInfo DisposedField = typeof(AmbientAudioSystem).GetField("_disposed", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private AudioSource MakeSource(string sourceName)
-        {
-            var go = new GameObject(sourceName);
-            go.transform.SetParent(transform, false);
-            var source = go.AddComponent<AudioSource>();
-            source.playOnAwake = false;
-            source.loop = true;
-            source.spatialBlend = 0f;
-            source.volume = 0f;
-            TerminalAudioRouting.Route(source);
-            return source;
-        }
+	private static readonly FieldInfo InitializedField = typeof(PrecipitationAmbientBlender).GetField("_initialized", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private IEnumerator Load()
-        {
-            yield return LoadClip(_outdoor, "amb_rain_outdoor_strong.wav", "amb_rain_outdoor_strong");
-            yield return LoadClip(_indoor, "amb_rain_indoor_strong.wav", "amb_rain_indoor_strong");
-            _ready = _outdoor && _outdoor.clip && _indoor && _indoor.clip;
-            if (_ready)
-            {
-                _outdoor.Play();
-                _indoor.Play();
-                Plugin.Log.LogInfo($"[RainAudio] fallback rain bed ready: outdoor='{_outdoor.clip.name}', "
-                    + $"indoor='{_indoor.clip.name}', mixer='{(_outdoor.outputAudioMixerGroup ? _outdoor.outputAudioMixerGroup.name : "BYPASS/NULL")}'");
-            }
-            else Plugin.Log.LogWarning("[RainAudio] fallback rain bed incomplete — one or both shipped clips failed to load");
-        }
+	private static readonly FieldInfo AmbientDataField = typeof(PrecipitationAmbientBlender).GetField("_ambientSoundData", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private IEnumerator LoadClip(AudioSource target, string fileName, string clipName)
-        {
-            // Prefer an already loaded bundle instance, but the disk copy makes this
-            // deterministic even when Unity has not retained the sharedassets clip.
-            foreach (var clip in Resources.FindObjectsOfTypeAll<AudioClip>())
-                if (clip && string.Equals(clip.name, clipName, StringComparison.OrdinalIgnoreCase))
-                {
-                    target.clip = clip;
-                    yield break;
-                }
+	private static readonly ESeasonStatus[] WarmSeasons = new ESeasonStatus[5]
+	{
+		ESeasonStatus.Summer,
+		ESeasonStatus.Autumn,
+		ESeasonStatus.Spring,
+		ESeasonStatus.AutumnLate,
+		ESeasonStatus.SpringEarly
+	};
 
-            string path = Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".",
-                "plugin-data", "audio", fileName);
-            if (!File.Exists(path))
-            {
-                Plugin.Log.LogWarning($"[RainAudio] fallback clip missing: {path}");
-                yield break;
-            }
+	private static readonly RainController.ERainIntensity[] RainTiers = new RainController.ERainIntensity[3]
+	{
+		RainController.ERainIntensity.Low,
+		RainController.ERainIntensity.Med,
+		RainController.ERainIntensity.High
+	};
 
-            using (var request = UnityWebRequestMultimedia.GetAudioClip(new Uri(path).AbsoluteUri, AudioType.WAV))
-            {
-                yield return request.SendWebRequest();
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    Plugin.Log.LogWarning($"[RainAudio] failed loading '{fileName}': {request.error}");
-                    yield break;
-                }
-                var clip = DownloadHandlerAudioClip.GetContent(request);
-                if (clip)
-                {
-                    clip.name = clipName;
-                    target.clip = clip;
-                }
-            }
-        }
+	internal static void ResetForRaid()
+	{
+		_nativeActive = false;
+		_nextStageProbeAt = 0f;
+		_raidBlenders = new PrecipitationAmbientBlender[0];
+		RestoreNativeSources();
+		TerminalRainBed.ResetForRaid();
+	}
 
-        private void Update()
-        {
-            if (!_ready || !TerminalGate.On) return;
-            float rain = Mathf.Clamp01(RainController.Intensity);
-            bool triggerIndoors = EnvironmentManager.Instance != null
-                && EnvironmentManager.Instance.Environment == EnvironmentType.Indoor;
+	internal static void TryStage()
+	{
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		if (!TerminalGate.On || Time.unscaledTime < _nextStageProbeAt)
+		{
+			return;
+		}
+		_nextStageProbeAt = Time.unscaledTime + 1f;
+		AmbientAudioSystem ambientAudioSystem = (MonoBehaviourSingleton<AmbientAudioSystem>.Instantiated ? MonoBehaviourSingleton<AmbientAudioSystem>.Instance : null);
+		if (_raidBlenders.Length == 0 || ValueEnumerableExtensions.Any<PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(_raidBlenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender blender) => !blender)))
+		{
+			_raidBlenders = UnityEngine.Object.FindObjectsOfType<PrecipitationAmbientBlender>(includeInactive: true);
+		}
+		PrecipitationAmbientBlender[] raidBlenders = _raidBlenders;
+		if (ambientAudioSystem == null && raidBlenders.Length == 0)
+		{
+			return;
+		}
+		if (ambientAudioSystem != null && ambientAudioSystem.Initialized)
+		{
+			bool flag = false;
+			try
+			{
+				flag = TryActivateNative(ambientAudioSystem, raidBlenders);
+			}
+			catch (Exception ex)
+			{
+				Plugin.Log.LogWarning("[RainAudio] native catalog activation failed; using recovered catalog: " + ex.Message);
+			}
+			if (flag)
+			{
+				_nativeActive = true;
+				RestoreNativeSources();
+				TerminalRainBed.ResetForRaid();
+				return;
+			}
+		}
+		_nativeActive = false;
+		MuteNativeSources(raidBlenders);
+		TerminalRainBed.Ensure(raidBlenders);
+	}
 
-            // Terminal's reconstructed environment switcher does not necessarily receive
-            // an overlap callback when the player is placed inside a trigger by the intro.
-            // Tarkov's rain controller independently photographs the camera every frame to
-            // decide whether rain can actually reach it.  Treat roof cover as indoor audio,
-            // while retaining the authored trigger as an additional indoor veto.  A short
-            // debounce prevents doorway/roof-edge samples from rapidly flipping both beds.
-            bool cameraUnderRain = RainController.IsCameraUnderRain;
-            bool candidateIndoors = triggerIndoors || !cameraUnderRain;
-            if (!_selectorInitialised)
-            {
-                _selectorInitialised = true;
-                _candidateIndoors = candidateIndoors;
-                _resolvedIndoors = candidateIndoors;
-                _candidateSince = Time.unscaledTime;
-            }
-            else if (_candidateIndoors != candidateIndoors)
-            {
-                _candidateIndoors = candidateIndoors;
-                _candidateSince = Time.unscaledTime;
-            }
-            else if (_resolvedIndoors != candidateIndoors
-                && Time.unscaledTime - _candidateSince >= 0.25f)
-            {
-                _resolvedIndoors = candidateIndoors;
-                if (rain > 0.01f)
-                    Plugin.Log.LogInfo($"[RainAudio] acoustic rain -> {(_resolvedIndoors ? "Indoor" : "Outdoor")} "
-                        + $"(trigger={(triggerIndoors ? "Indoor" : "Outdoor")}, cameraUnderRain={cameraUnderRain})");
-            }
-            bool indoors = _resolvedIndoors;
+	private static bool TryActivateNative(AmbientAudioSystem sys, PrecipitationAmbientBlender[] blenders)
+	{
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00e6: Unknown result type (might be due to invalid IL or missing references)
+		if (sys == null || !sys.Initialized || !sys.isActiveAndEnabled || DisposedField == null || (bool)DisposedField.GetValue(sys) || blenders == null || blenders.Length == 0)
+		{
+			return false;
+		}
+		if (ValueEnumerableExtensions.Any<PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(blenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender precipitationAmbientBlender) => !precipitationAmbientBlender)) || !HasFullCatalog(sys.AmbientSoundData))
+		{
+			return false;
+		}
+		ISoundBlender[] array = SoundBlendersField?.GetValue(sys) as ISoundBlender[];
+		if (InitializedField == null || AmbientDataField == null || array == null)
+		{
+			return false;
+		}
+		AudioMixer masterMixer = SoundSettingsController.MasterMixer;
+		if (!masterMixer)
+		{
+			return false;
+		}
+		AudioMixerGroup audioMixerGroup = null;
+		AudioMixerGroup audioMixerGroup2 = null;
+		foreach (PrecipitationAmbientBlender blender in blenders)
+		{
+			if (!ValueEnumerableExtensions.Any<ISoundBlender>(ValueEnumerable.AsValueEnumerable<ISoundBlender>(array), (Func<ISoundBlender, bool>)((ISoundBlender item) => item == blender)) || !blender.isActiveAndEnabled || !(bool)InitializedField.GetValue(blender) || AmbientDataField.GetValue(blender) != sys.AmbientSoundData || !blender._outputMixerGroup || blender._outputMixerGroup.audioMixer != masterMixer || !NativeSourceReady(blender._precipitationSource, blender._outputMixerGroup) || !NativeSourceReady(blender._precipitationMixSource, blender._outputMixerGroup))
+			{
+				return false;
+			}
+			if (RainController.IntensityType != RainController.ERainIntensity.None && (!blender._precipitationSource.isPlaying || !blender._precipitationSource.clip) && (!blender._precipitationMixSource.isPlaying || !blender._precipitationMixSource.clip))
+			{
+				return false;
+			}
+			if (blender._environment == EnvironmentType.Indoor)
+			{
+				audioMixerGroup = blender._outputMixerGroup;
+			}
+			else if (blender._environment == EnvironmentType.Outdoor)
+			{
+				audioMixerGroup2 = blender._outputMixerGroup;
+			}
+		}
+		if (!audioMixerGroup || !audioMixerGroup2 || audioMixerGroup == audioMixerGroup2)
+		{
+			return false;
+		}
+		if (!_nativeActive)
+		{
+			Plugin.Log.LogInfo($"[RainAudio] healthy native precipitation catalog active: {blenders.Length} blender(s), " + "indoor='" + audioMixerGroup.name + "', outdoor='" + audioMixerGroup2.name + "'");
+		}
+		return true;
+	}
 
-            float outdoorTarget = indoors ? 0f : rain * 0.85f;
-            float indoorTarget = indoors ? rain * 0.52f : 0f;
-            float step = Time.unscaledDeltaTime * 0.8f;
-            _outdoor.volume = Mathf.MoveTowards(_outdoor.volume, outdoorTarget, step);
-            _indoor.volume = Mathf.MoveTowards(_indoor.volume, indoorTarget, step);
+	private static bool NativeSourceReady(AudioSource source, AudioMixerGroup group)
+	{
+		bool value;
+		if ((bool)source && source.isActiveAndEnabled && source.outputAudioMixerGroup == group)
+		{
+			return !(NativeMuteStates.TryGetValue(source, out value) ? value : source.mute);
+		}
+		return false;
+	}
 
-            if (!_reportedLive && rain > 0.01f)
-            {
-                _reportedLive = true;
-                Plugin.Log.LogInfo($"[RainAudio] fallback precipitation audible: intensity={rain:0.00}, "
-                    + $"environment={(indoors ? "Indoor" : "Outdoor")}, "
-                    + $"trigger={(triggerIndoors ? "Indoor" : "Outdoor")}, cameraUnderRain={cameraUnderRain}");
-            }
-        }
-    }
+	private static bool HasFullCatalog(SeasonAmbientSoundDataSO data)
+	{
+		//IL_0022: Unknown result type (might be due to invalid IL or missing references)
+		if (!data)
+		{
+			return false;
+		}
+		try
+		{
+			return ValueEnumerableExtensions.All<ESeasonStatus>(ValueEnumerable.AsValueEnumerable<ESeasonStatus>(WarmSeasons), (Func<ESeasonStatus, bool>)((ESeasonStatus season) =>
+			{
+				//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+				return ValueEnumerableExtensions.All<RainController.ERainIntensity>(ValueEnumerable.AsValueEnumerable<RainController.ERainIntensity>(RainTiers), (Func<RainController.ERainIntensity, bool>)((RainController.ERainIntensity tier) => data.TryGetPrecipitationClip(season, tier, EnvironmentType.Indoor, out var clip) && (bool)clip && data.TryGetPrecipitationClip(season, tier, EnvironmentType.Outdoor, out var clip2) && (bool)clip2));
+			}));
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static void MuteNativeSources(PrecipitationAmbientBlender[] blenders)
+	{
+		if (blenders == null)
+		{
+			return;
+		}
+		foreach (PrecipitationAmbientBlender precipitationAmbientBlender in blenders)
+		{
+			if ((bool)precipitationAmbientBlender)
+			{
+				MuteNativeSource(precipitationAmbientBlender._precipitationSource);
+				MuteNativeSource(precipitationAmbientBlender._precipitationMixSource);
+			}
+		}
+	}
+
+	private static void MuteNativeSource(AudioSource source)
+	{
+		if ((bool)source)
+		{
+			if (!NativeMuteStates.ContainsKey(source))
+			{
+				NativeMuteStates[source] = source.mute;
+			}
+			source.mute = true;
+		}
+	}
+
+	private static void RestoreNativeSources()
+	{
+		foreach (KeyValuePair<AudioSource, bool> nativeMuteState in NativeMuteStates)
+		{
+			if ((bool)nativeMuteState.Key)
+			{
+				nativeMuteState.Key.mute = nativeMuteState.Value;
+			}
+		}
+		NativeMuteStates.Clear();
+	}
+
+	internal static RainBlendProfile ReadBlendProfile(PrecipitationAmbientBlender[] blenders, EnvironmentType environment)
+	{
+		//IL_001d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0046: Unknown result type (might be due to invalid IL or missing references)
+		RainBlendProfile rainBlendProfile = new RainBlendProfile();
+		if (blenders == null || blenders.Length == 0)
+		{
+			return rainBlendProfile;
+		}
+		PrecipitationAmbientBlender precipitationAmbientBlender = ValueEnumerableExtensions.FirstOrDefault<FromArray<PrecipitationAmbientBlender>, PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(blenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender blender) => (bool)blender && blender._environment == environment));
+		if ((bool)precipitationAmbientBlender)
+		{
+			ApplyBlendFields(rainBlendProfile, precipitationAmbientBlender);
+			return rainBlendProfile;
+		}
+		PrecipitationAmbientBlender precipitationAmbientBlender2 = ValueEnumerableExtensions.FirstOrDefault<FromArray<PrecipitationAmbientBlender>, PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(blenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender blender) => blender));
+		if ((bool)precipitationAmbientBlender2)
+		{
+			ApplyBlendFields(rainBlendProfile, precipitationAmbientBlender2);
+		}
+		return rainBlendProfile;
+	}
+
+	private static void ApplyBlendFields(RainBlendProfile profile, PrecipitationAmbientBlender blender)
+	{
+		profile.CrossfadeDuration = PositiveOrDefault(blender._crossfadeDuration, profile.CrossfadeDuration);
+		profile.BlendSpeed = PositiveOrDefault(blender._defaultBlendSpeed, profile.BlendSpeed);
+		profile.DynamicCrossfadeDuration = PositiveOrDefault(blender._dynamicCrossfadeDuration, profile.DynamicCrossfadeDuration);
+		profile.DynamicBlendSpeed = PositiveOrDefault(blender._dynamicBlendSpeed, profile.DynamicBlendSpeed);
+		profile.MaxVolumeCheckDelta = PositiveOrDefault(blender._maxVolumeCheckDelta, profile.MaxVolumeCheckDelta);
+	}
+
+	private static float PositiveOrDefault(float value, float fallback)
+	{
+		if (!(value > 0f) || float.IsNaN(value) || float.IsInfinity(value))
+		{
+			return fallback;
+		}
+		return value;
+	}
+
+	internal static ESeasonStatus CurrentSeason(AmbientAudioSystem ambient)
+	{
+		if (ambient != null && ambient.Initialized)
+		{
+			return ambient.CurrentSeasonStatus;
+		}
+		try
+		{
+			RainController.ERainControllerStatus? eRainControllerStatus = (WeatherController.Instance?.RainController)?.State?.Status;
+			if (eRainControllerStatus.HasValue)
+			{
+				switch (eRainControllerStatus.GetValueOrDefault())
+				{
+				case RainController.ERainControllerStatus.Autumn:
+					return ESeasonStatus.Autumn;
+				case RainController.ERainControllerStatus.AutumnLate:
+					return ESeasonStatus.AutumnLate;
+				case RainController.ERainControllerStatus.Spring:
+					return ESeasonStatus.Spring;
+				case RainController.ERainControllerStatus.SpringEarly:
+					return ESeasonStatus.SpringEarly;
+				}
+			}
+		}
+		catch
+		{
+		}
+		return ESeasonStatus.Summer;
+	}
+
+	internal static bool IsWinter(AmbientAudioSystem ambient)
+	{
+		if (ambient != null && ambient.Initialized)
+		{
+			if (ambient.CurrentSeasonStatus != ESeasonStatus.Winter)
+			{
+				return ambient.CurrentSeasonStatus == ESeasonStatus.Storm;
+			}
+			return true;
+		}
+		try
+		{
+			RainController.ERainControllerStatus? eRainControllerStatus = WeatherController.Instance?.RainController?.State?.Status;
+			return eRainControllerStatus == RainController.ERainControllerStatus.Winter || eRainControllerStatus == RainController.ERainControllerStatus.WinterStorm || eRainControllerStatus == RainController.ERainControllerStatus.WinterStormReconnect;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	internal static float GetRainMultiplier(ESeasonStatus season, EnvironmentType environment, RainController.ERainIntensity intensity)
+	{
+		if (intensity == RainController.ERainIntensity.None)
+		{
+			return 0f;
+		}
+		try
+		{
+			if (!Singleton<ClientSettingsConfig>.Instantiated)
+			{
+				return 1f;
+			}
+			return (Singleton<ClientSettingsConfig>.Instance?.AudioSettings?.EnvironmentSettings)?.GetSeasonSettings(season)?.GetRainMult(environment, intensity) ?? 1f;
+		}
+		catch
+		{
+			return 1f;
+		}
+	}
 }

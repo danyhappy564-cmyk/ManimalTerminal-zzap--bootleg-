@@ -2,97 +2,97 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 
-namespace Manimal.Terminal
+namespace Manimal.Terminal;
+
+internal static class TerminalSainCompat
 {
-    // SAIN 4.4.3 recognizes ELocation.Terminal, but deliberately omits Terminal
-    // from its LocationSettings dictionary.  Present only SAIN's location parser
-    // with Customs: a mixed indoor/outdoor preset that suits the port. The real
-    // GameWorld.LocationId remains Terminal for every game and map system.
-    internal static class TerminalSainCompat
-    {
-        private const string LocationTypeName = "SAIN.Components.LocationClass";
-        private static readonly object Sync = new object();
-        private static Harmony _harmony;
-        private static FieldInfo _foundLocation;
-        private static bool _detected;
-        private static bool _installed;
-        private static object _lastAppliedInstance;
+	private const string LocationTypeName = "SAIN.Components.LocationClass";
 
-        // Registration-time compatibility decisions must work even if SAIN's
-        // private location parser changes and the optional patch cannot install.
-        // TryInstall owns the expensive reflection probe and records both outcomes.
-        // Detected is read from BigBrain's per-bot hot paths, so it must never scan
-        // every loaded assembly when SAIN is absent. TryInstall runs once in Awake
-        // and gets one late-load retry when Terminal raid construction begins.
-        internal static bool Detected => _detected;
+	private static readonly object Sync = new object();
 
-        internal static void Install(Harmony harmony)
-        {
-            _harmony = harmony;
-            TryInstall();
-        }
+	private static Harmony _harmony;
 
-        internal static void TryInstall()
-        {
-            if (_installed || _harmony == null) return;
-            lock (Sync)
-            {
-                if (_installed) return;
-                var locationType = AccessTools.TypeByName(LocationTypeName);
-                if (locationType == null) return; // optional mod absent/not loaded yet
-                _detected = true;
+	private static FieldInfo _foundLocation;
 
-                try
-                {
-                    var target = AccessTools.Method(locationType, "parseLocation");
-                    if (target == null)
-                    {
-                        Plugin.Log.LogWarning("[SainCompat] SAIN detected but LocationClass.parseLocation was not found — compatibility layout changed");
-                        return;
-                    }
+	private static bool _detected;
 
-                    _foundLocation = AccessTools.Field(locationType, "_foundLocation");
-                    _harmony.Patch(target, prefix: new HarmonyMethod(AccessTools.Method(
-                        typeof(TerminalSainCompat), nameof(ParseLocationPrefix))));
-                    _installed = true;
-                    string version = locationType.Assembly.GetName().Version?.ToString() ?? "unknown";
-                    Plugin.Log.LogWarning($"[SainCompat] SAIN {version} detected — Terminal will use SAIN's Customs location preset; real map ID remains Terminal");
-                }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogWarning($"[SainCompat] SAIN location compatibility patch failed: {e}");
-                }
-            }
-        }
+	private static bool _installed;
 
-        private static bool ParseLocationPrefix(object __instance, ref object __result)
-        {
-            if (!TerminalGate.On) return true;
-            try
-            {
-                // 4.4.x keeps ELocation in SAIN; 4.5 moved it into the shared
-                // preset assembly. Harmony normally supplies a boxed default result,
-                // so that remains the preferred version-independent source.
-                var enumType = __result?.GetType()
-                    ?? AccessTools.TypeByName("SAIN.Preset.Shared.Enums.ELocation")
-                    ?? AccessTools.TypeByName("SAIN.ELocation")
-                    ?? AccessTools.TypeByName("ELocation");
-                if (enumType == null || !enumType.IsEnum) return true;
+	private static object _lastAppliedInstance;
 
-                __result = Enum.Parse(enumType, "Customs");
-                _foundLocation?.SetValue(__instance, true);
-                if (!ReferenceEquals(_lastAppliedInstance, __instance))
-                {
-                    _lastAppliedInstance = __instance;
-                    Plugin.Log.LogWarning("[SainCompat] Terminal resolved as Customs inside SAIN for this raid");
-                }
-                return false;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogDebug($"[SainCompat] Customs substitution failed; using SAIN's native location: {e.Message}");
-                return true;
-            }
-        }
-    }
+	internal static bool Detected => _detected;
+
+	internal static void Install(Harmony harmony)
+	{
+		_harmony = harmony;
+		TryInstall();
+	}
+
+	internal static void TryInstall()
+	{
+		if (_installed || _harmony == null)
+		{
+			return;
+		}
+		lock (Sync)
+		{
+			if (_installed)
+			{
+				return;
+			}
+			Type type = AccessTools.TypeByName("SAIN.Components.LocationClass");
+			if (type == null)
+			{
+				return;
+			}
+			_detected = true;
+			try
+			{
+				MethodInfo methodInfo = AccessTools.Method(type, "parseLocation");
+				if (methodInfo == null)
+				{
+					Plugin.Log.LogWarning("[SainCompat] SAIN detected but LocationClass.parseLocation was not found — compatibility layout changed");
+					return;
+				}
+				_foundLocation = AccessTools.Field(type, "_foundLocation");
+				_harmony.Patch((MethodBase)methodInfo, new HarmonyMethod(AccessTools.Method(typeof(TerminalSainCompat), "ParseLocationPrefix")), (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null);
+				_installed = true;
+				string text = type.Assembly.GetName().Version?.ToString() ?? "unknown";
+				Plugin.Log.LogWarning("[SainCompat] SAIN " + text + " detected — Terminal will use SAIN's Customs location preset; real map ID remains Terminal");
+			}
+			catch (Exception arg)
+			{
+				Plugin.Log.LogWarning($"[SainCompat] SAIN location compatibility patch failed: {arg}");
+			}
+		}
+	}
+
+	private static bool ParseLocationPrefix(object __instance, ref object __result)
+	{
+		if (!TerminalGate.On)
+		{
+			return true;
+		}
+		try
+		{
+			Type type = __result?.GetType() ?? AccessTools.TypeByName("SAIN.Preset.Shared.Enums.ELocation") ?? AccessTools.TypeByName("SAIN.ELocation") ?? AccessTools.TypeByName("ELocation");
+			if (type == null || !type.IsEnum)
+			{
+				return true;
+			}
+			__result = Enum.Parse(type, "Customs");
+			_foundLocation?.SetValue(__instance, true);
+			if (_lastAppliedInstance != __instance)
+			{
+				_lastAppliedInstance = __instance;
+				Plugin.Log.LogWarning("[SainCompat] Terminal resolved as Customs inside SAIN for this raid");
+			}
+			return false;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogDebug("[SainCompat] Customs substitution failed; using SAIN's native location: " + ex.Message);
+			return true;
+		}
+	}
 }

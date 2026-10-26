@@ -1,191 +1,199 @@
+using System;
 using BepInEx.Logging;
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace Manimal.Terminal.Civilian.Behavior
+namespace Manimal.Terminal.Civilian.Behavior;
+
+internal sealed class CivilianFleeLogic(BotOwner botOwner) : CustomLogic(botOwner)
 {
-    // per-tick flee: pick a cover point on the far side of the threat, sprint to
-    // it, then crouch and cower. destination only re-rolls on arrival or repath —
-    // per-tick GoToPoint thrashed the BotMover into spazzing-in-place.
-    internal sealed class CivilianFleeLogic : CustomLogic
-    {
-        private static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource("Terminal.Civ");
+	private static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource("Terminal.Civ");
 
-        private const float ArrivalDistance = 2.5f;
-        // fan-out either side of straight-away; wider = less "they all pick the same wall"
-        private const float FleeConeDegrees = 75f;
+	private const float ArrivalDistance = 2.5f;
 
-        private Vector3 _destination;
-        private bool _hasDestination;
-        private bool _commandIssued;
-        private readonly System.Random _rng = new System.Random();
+	private const float FleeConeDegrees = 75f;
 
-        public CivilianFleeLogic(BotOwner botOwner) : base(botOwner) { }
+	private Vector3 _destination;
 
-        public override void Start()
-        {
-            _hasDestination = false;
-            _commandIssued = false;
-            if (BotOwner != null)
-            {
-                BotOwner.Sprint(true);
-                BotOwner.Mover?.SetTargetMoveSpeed(1f);
-                SetCrouch(false);
-            }
-        }
+	private bool _hasDestination;
 
-        public override void Stop()
-        {
-            if (BotOwner != null)
-            {
-                BotOwner.Sprint(false);
-                SetCrouch(false);
-            }
-            var state = CivilianFleeState.Get(BotOwner);
-            state.InCover = false;
-            state.CoweringUntil = 0f;
-            _hasDestination = false;
-            _commandIssued = false;
-            CivilianUnstickHelper.Reset(BotOwner);
-        }
+	private bool _commandIssued;
 
-        public override void Update(CustomLayer.ActionData data)
-        {
-            if (BotOwner == null || BotOwner.Mover == null) return;
+	private bool _sprintStateKnown;
 
-            CivilianDoorHelper.CheckAndOpenNearbyDoor(BotOwner);
-            CivilianMeleeEnforcer.Tick(BotOwner);
+	private bool _sprintRequested;
 
-            var state = CivilianFleeState.Get(BotOwner);
-            var botPos = BotOwner.Position;
+	private readonly System.Random _rng = new System.Random();
 
-            // cowering — stay put, stay crouched
-            if (state.InCover && state.CoweringUntil > Time.time)
-            {
-                return;
-            }
+	public override void Start()
+	{
+		_hasDestination = false;
+		_commandIssued = false;
+		_sprintStateKnown = false;
+		CivilianFleeState.Get(BotOwner).MotionRequested = false;
+		if (BotOwner != null)
+		{
+			SetSprint(sprint: true);
+			BotOwner.Mover?.SetTargetMoveSpeed(1f);
+			SetCrouch(crouch: false);
+		}
+	}
 
-            var threat = CivilianThreatScanner.FindNearestThreat(BotOwner, CivilianConstants.ThreatDetectionRadius);
+	public override void Stop()
+	{
+		if (BotOwner != null)
+		{
+			SetSprint(sprint: false);
+			SetCrouch(crouch: false);
+		}
+		CivilianFleeState.State state = CivilianFleeState.Get(BotOwner);
+		state.InCover = false;
+		state.CoweringUntil = 0f;
+		state.MotionRequested = false;
+		_hasDestination = false;
+		_commandIssued = false;
+		CivilianUnstickHelper.Reset(BotOwner);
+	}
 
-            if (threat.HasThreat)
-            {
-                var threatPos = threat.ThreatPosition;
+	public override void Update(CustomLayer.ActionData data)
+	{
+		if (BotOwner == null || BotOwner.Mover == null)
+		{
+			return;
+		}
+		CivilianDoorHelper.CheckAndOpenNearbyDoor(BotOwner);
+		CivilianMeleeEnforcer.Tick(BotOwner);
+		CivilianFleeState.State state = CivilianFleeState.Get(BotOwner);
+		Vector3 position = BotOwner.Position;
+		if (state.InCover && state.CoweringUntil <= Time.time)
+		{
+			state.InCover = false;
+			state.CoweringUntil = 0f;
+			state.MotionRequested = false;
+			_hasDestination = false;
+			_commandIssued = false;
+			SetCrouch(crouch: false);
+		}
+		if (state.InCover && state.CoweringUntil > Time.time)
+		{
+			state.MotionRequested = false;
+			return;
+		}
+		CivilianThreatScanner.ThreatResult threatResult = CivilianThreatScanner.FindNearestThreat(BotOwner, 25f);
+		if (threatResult.HasThreat)
+		{
+			Vector3 threatPosition = threatResult.ThreatPosition;
+			if (state.InCover)
+			{
+				state.InCover = false;
+				state.CoweringUntil = 0f;
+				_hasDestination = false;
+				SetCrouch(crouch: false);
+				state.MotionRequested = false;
+			}
+			SetSprint(sprint: true);
+			if (!_hasDestination || ArrivedAt(_destination, position))
+			{
+				PickRandomFleeDestination(threatPosition, position);
+			}
+			IssueMoveIfNeeded();
+			CheckStuck();
+		}
+		else if (_hasDestination && ArrivedAt(_destination, position))
+		{
+			state.MotionRequested = false;
+			if (!state.InCover)
+			{
+				SetSprint(sprint: false);
+				SetCrouch(crouch: true);
+				state.InCover = true;
+				state.CoweringUntil = Time.time + 5f;
+			}
+		}
+		else if (_hasDestination)
+		{
+			SetSprint(sprint: false);
+			IssueMoveIfNeeded();
+			CheckStuck();
+		}
+	}
 
-                // new threat breaks an existing cower
-                if (state.InCover)
-                {
-                    state.InCover = false;
-                    state.CoweringUntil = 0f;
-                    _hasDestination = false;
-                    SetCrouch(false);
-                }
+	private void CheckStuck()
+	{
+		if (_hasDestination && CivilianUnstickHelper.Check(BotOwner, _destination) == CivilianUnstickHelper.Status.NeedsRepath)
+		{
+			_hasDestination = false;
+			_commandIssued = false;
+			CivilianFleeState.Get(BotOwner).MotionRequested = false;
+		}
+	}
 
-                BotOwner.Sprint(true);
+	private void IssueMoveIfNeeded()
+	{
+		if (_hasDestination && !_commandIssued)
+		{
+			if (BotOwner.Mover.GoToPoint(_destination, slowAtTheEnd: false, 1f) == NavMeshPathStatus.PathInvalid)
+			{
+				_hasDestination = false;
+				CivilianFleeState.Get(BotOwner).MotionRequested = false;
+			}
+			else
+			{
+				_commandIssued = true;
+				CivilianFleeState.Get(BotOwner).MotionRequested = true;
+			}
+		}
+	}
 
-                // no mid-flight redirects — commit to the chosen spot
-                if (!_hasDestination || ArrivedAt(_destination, botPos))
-                {
-                    PickRandomFleeDestination(threatPos, botPos);
-                }
-                IssueMoveIfNeeded();
-                CheckStuck();
-                return;
-            }
+	private void PickRandomFleeDestination(Vector3 threatPos, Vector3 botPos)
+	{
+		Vector3 vector = botPos - threatPos;
+		vector.y = 0f;
+		if (vector.sqrMagnitude < 0.01f)
+		{
+			vector = new Vector3((float)_rng.NextDouble() - 0.5f, 0f, (float)_rng.NextDouble() - 0.5f);
+		}
+		Vector3 normalized = vector.normalized;
+		Vector3 vector2 = Quaternion.AngleAxis(((float)_rng.NextDouble() * 2f - 1f) * 75f, Vector3.up) * normalized;
+		float num = 12f + (float)_rng.NextDouble() * 10f;
+		Vector3 vector3 = botPos + vector2 * num;
+		Vector3 vector4 = (BotOwner.Covers?.FindClosestPoint(vector3, 0f, threatPos))?.Position ?? vector3;
+		CivilianFleeState.State state = CivilianFleeState.Get(BotOwner);
+		if (state.HasHome)
+		{
+			Vector3 homePosition = state.HomePosition;
+			Vector3 vector5 = vector4 - homePosition;
+			if (vector5.magnitude > 30f)
+			{
+				vector4 = homePosition + vector5.normalized * 30f;
+			}
+		}
+		_destination = vector4;
+		_hasDestination = true;
+		_commandIssued = false;
+	}
 
-            // no threat: on arrival, enter the cower phase
-            if (_hasDestination && ArrivedAt(_destination, botPos))
-            {
-                if (!state.InCover)
-                {
-                    BotOwner.Sprint(false);
-                    SetCrouch(true);
-                    state.InCover = true;
-                    state.CoweringUntil = Time.time + CivilianConstants.CowerDurationSeconds;
-                }
-            }
-            else if (_hasDestination)
-            {
-                // threat dropped mid-run — keep walking to the committed spot
-                BotOwner.Sprint(false);
-                IssueMoveIfNeeded();
-                CheckStuck();
-            }
-        }
+	private static bool ArrivedAt(Vector3 dest, Vector3 botPos)
+	{
+		Vector3 vector = dest - botPos;
+		vector.y = 0f;
+		return vector.sqrMagnitude < 6.25f;
+	}
 
-        private void CheckStuck()
-        {
-            if (!_hasDestination) return;
-            var status = CivilianUnstickHelper.Check(BotOwner, _destination);
-            if (status == CivilianUnstickHelper.Status.NeedsRepath)
-            {
-                _hasDestination = false;
-                _commandIssued = false;
-            }
-        }
+	private void SetCrouch(bool crouch)
+	{
+		(BotOwner?.GetPlayer?.MovementContext)?.SetPoseLevel(crouch ? 0f : 1f);
+	}
 
-        private void IssueMoveIfNeeded()
-        {
-            if (!_hasDestination || _commandIssued) return;
-            // mustHaveWay=true so BotDoorOpener registers door waypoints along the
-            // route — without it bots phase through closed doors
-            var status = BotOwner.Mover.GoToPoint(_destination, false, 1f, false, true, false, false);
-            if (status == NavMeshPathStatus.PathInvalid)
-            {
-                _hasDestination = false;
-                return;
-            }
-            _commandIssued = true;
-        }
-
-        private void PickRandomFleeDestination(Vector3 threatPos, Vector3 botPos)
-        {
-            var away = (botPos - threatPos);
-            away.y = 0f;
-            if (away.sqrMagnitude < 0.01f)
-            {
-                away = new Vector3((float)_rng.NextDouble() - 0.5f, 0f, (float)_rng.NextDouble() - 0.5f);
-            }
-            var awayNorm = away.normalized;
-
-            var angle = ((float)_rng.NextDouble() * 2f - 1f) * FleeConeDegrees;
-            var rotated = Quaternion.AngleAxis(angle, Vector3.up) * awayNorm;
-
-            var distance = 12f + (float)_rng.NextDouble() * 10f; // 12-22m
-            var target = botPos + rotated * distance;
-
-            var cover = BotOwner.Covers?.FindClosestPoint(target, 0f, threatPos);
-            var dest = cover != null ? cover.Position : target;
-
-            // home tether: pull the flee back inside the zone radius
-            var state = CivilianFleeState.Get(BotOwner);
-            if (state.HasHome)
-            {
-                var home = state.HomePosition;
-                var offset = dest - home;
-                if (offset.magnitude > CivilianConstants.HomeZoneRadius)
-                {
-                    dest = home + offset.normalized * CivilianConstants.HomeZoneRadius;
-                }
-            }
-
-            _destination = dest;
-            _hasDestination = true;
-            _commandIssued = false;
-        }
-
-        private static bool ArrivedAt(Vector3 dest, Vector3 botPos)
-        {
-            var d = dest - botPos;
-            d.y = 0f;
-            return d.sqrMagnitude < (ArrivalDistance * ArrivalDistance);
-        }
-
-        private void SetCrouch(bool crouch)
-        {
-            var ctx = BotOwner?.GetPlayer?.MovementContext;
-            ctx?.SetPoseLevel(crouch ? 0f : 1f, false);
-        }
-    }
+	private void SetSprint(bool sprint)
+	{
+		if (!(BotOwner == null) && (!_sprintStateKnown || _sprintRequested != sprint))
+		{
+			BotOwner.Sprint(sprint);
+			_sprintRequested = sprint;
+			_sprintStateKnown = true;
+		}
+	}
 }
