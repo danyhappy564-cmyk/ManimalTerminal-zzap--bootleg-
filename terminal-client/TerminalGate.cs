@@ -68,6 +68,7 @@ internal static class TerminalGate
 			TerminalCrewJobs.Reset();
 			TerminalShaderRebind.ResetForRaid();
 			TerminalRigFill.ResetForRaid();
+			TerminalRuafNeutral.ResetForRaid();
 			TerminalSpawnGate.ResetForRaid();
 			TerminalPopulationDirector.ResetForRaid();
 			TerminalStageDirector.ResetForRaid();

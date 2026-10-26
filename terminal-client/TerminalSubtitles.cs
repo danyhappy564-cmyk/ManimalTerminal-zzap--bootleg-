@@ -218,7 +218,22 @@ internal static class TerminalSubtitles
 			}
 			// zzap: Bender has no Hangul — Korean lines draw with the OS Korean font
 			_sharedText.font = TerminalLang.FontFor(txt, _benderRegular ?? GUI.skin.font);
-			float num = (float)Screen.width * 0.45f;
+			// zzap: size from F12 SubtitleSize (the original 1.7%-of-screen text read tiny)
+			_sharedText.fontSize = Mathf.RoundToInt((float)Screen.height * 0.017f * Mathf.Clamp(Plugin.SubtitleSize?.Value ?? 1f, 0.5f, 3f));
+			_sharedText.padding = new RectOffset(Mathf.RoundToInt(_sharedText.fontSize * 0.6f), Mathf.RoundToInt(_sharedText.fontSize * 0.6f), Mathf.RoundToInt(_sharedText.fontSize * 0.3f), Mathf.RoundToInt(_sharedText.fontSize * 0.3f));
+			// zzap: a dynamic OS font reports glyphs it has not rasterized yet as too
+			// narrow, so the box came out smaller than the line — rasterize the line
+			// (regular and bold, for the speaker name) before measuring it
+			try
+			{
+				string plain = txt.Replace("<b>", "").Replace("</b>", "");
+				_sharedText.font.RequestCharactersInTexture(plain, _sharedText.fontSize, FontStyle.Normal);
+				_sharedText.font.RequestCharactersInTexture(plain, _sharedText.fontSize, FontStyle.Bold);
+			}
+			catch
+			{
+			}
+			float num = (float)Screen.width * 0.6f;
 			// zzap: measure the text as drawn (bold speaker name included). Measuring with
 			// the <b> tags stripped made the box narrower than the bold Korean line, which
 			// then ran past its right edge.
@@ -227,7 +242,8 @@ internal static class TerminalSubtitles
 			// small slack for synthesized bold on OS fonts, which can draw a hair wider than measured
 			float num2 = Mathf.Min(measured * 1.03f + (float)_sharedText.padding.horizontal + 12f, num);
 			float height = _sharedText.CalcHeight(content, num2 - (float)_sharedText.padding.horizontal);
-			Rect position = new Rect(((float)Screen.width - num2) / 2f, (float)Screen.height * 0.9f, num2, height);
+			// bottom-anchored so a larger or two-line subtitle grows upward and stays on screen
+			Rect position = new Rect(((float)Screen.width - num2) / 2f, (float)Screen.height * 0.93f - height, num2, height);
 			Color color = GUI.color;
 			GUI.color = new Color(0f, 0f, 0f, 0.55f);
 			GUI.DrawTexture(position, _sharedBg);

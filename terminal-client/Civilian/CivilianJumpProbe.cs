@@ -24,11 +24,27 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		internal float NextLog;
 
 		internal int Jumps;
+
+		internal string Layer;
+
+		internal readonly List<float> SwitchTimes = new List<float>();
+
+		internal readonly List<string> SwitchNames = new List<string>();
+
+		internal float NextSwitchLog;
 	}
 
 	private const float MaxPlausibleSpeed = 9f;
 
-	private const float MinJump = 1.2f;
+	// v2 (10/26 third raid caught only one 9.6m jump, yet the stutter was visible):
+	// the stutter is smaller back-and-forth steps, so flag anything faster than a
+	// sprint, and separately log brain-layer flip-flops (two systems fighting over
+	// the same civilian look exactly like stutter-stepping).
+	private const float MinJump = 0.45f;
+
+	private const int SwitchBurst = 4;
+
+	private const float SwitchWindow = 3f;
 
 	private readonly Dictionary<int, Track> _tracks = new Dictionary<int, Track>();
 
@@ -85,7 +101,8 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 			int frames = Mathf.Max(1, frame - track.Frame);
 			track.Pos = pos;
 			track.Frame = frame;
-			if (frames != 1 || moved < MinJump || moved < MaxPlausibleSpeed * dt * 2f)
+			TrackLayer(player, track);
+			if (frames != 1 || moved < MinJump || moved < MaxPlausibleSpeed * dt * 1.5f)
 			{
 				continue;
 			}
@@ -97,6 +114,48 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 			track.NextLog = Time.realtimeSinceStartup + 2f;
 			_logged++;
 			Plugin.Log.LogWarning("[CivJump] " + Describe(player, moved, dt, track.Jumps));
+		}
+	}
+
+	private void TrackLayer(Player player, Track track)
+	{
+		BotOwner bot = player.AIData?.BotOwner;
+		if (bot == null)
+		{
+			return;
+		}
+		string layer;
+		try
+		{
+			layer = BrainManager.GetActiveLayerName(bot) ?? "<none>";
+		}
+		catch
+		{
+			return;
+		}
+		if (track.Layer == null)
+		{
+			track.Layer = layer;
+			return;
+		}
+		if (layer == track.Layer)
+		{
+			return;
+		}
+		float now = Time.time;
+		track.SwitchTimes.Add(now);
+		track.SwitchNames.Add(track.Layer + ">" + layer);
+		track.Layer = layer;
+		while (track.SwitchTimes.Count > 0 && now - track.SwitchTimes[0] > SwitchWindow)
+		{
+			track.SwitchTimes.RemoveAt(0);
+			track.SwitchNames.RemoveAt(0);
+		}
+		if (track.SwitchTimes.Count >= SwitchBurst && now >= track.NextSwitchLog)
+		{
+			track.NextSwitchLog = now + 5f;
+			_logged++;
+			Plugin.Log.LogWarning($"[CivJump] {player.Profile?.Nickname} brain layer flip-flop: {track.SwitchTimes.Count} switches in {SwitchWindow:0}s — " + string.Join(", ", track.SwitchNames));
 		}
 	}
 

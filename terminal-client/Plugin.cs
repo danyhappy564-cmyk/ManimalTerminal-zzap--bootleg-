@@ -234,6 +234,8 @@ public class Plugin : BaseUnityPlugin
 
 	internal static ConfigEntry<bool> CivilianJumpProbe;
 
+	internal static ConfigEntry<float> SubtitleSize;
+
 	internal static ConfigEntry<bool> AmbientSplines;
 
 	internal static ConfigEntry<bool> SoundRigFirefight;
@@ -345,6 +347,7 @@ public class Plugin : BaseUnityPlugin
 		CutsceneSubtitles = Config.Bind("Terminal", "CutsceneSubtitles", defaultValue: true, new ConfigDescription("show timed subtitles during the cutscenes (live-locale text, speech-segmented timings — edit plugin-data/terminal_subtitle_timings.json to tune)", null));
 		Language = Config.Bind("Terminal", "Language", "Auto", new ConfigDescription("language of Terminal's own subtitles, notifications, prompts and epilogue. Auto = follow the game's language (Korean text from plugin-data/lang/kr.json) / 터미널 자막·알림·안내·엔딩 화면 언어. Auto = 게임 언어를 따름", new AcceptableValueList<string>("Auto", "Korean", "English")));
 		CivilianJumpProbe = Config.Bind("Terminal", "CivilianJumpProbe", defaultValue: true, new ConfigDescription("diagnostic: when a civilian moves implausibly far in one frame (teleport/stutter), log [CivJump] with its brain layer/logic, mover and animator state. read-only, logs at most once per 2s per civilian / 시민 순간이동 진단 로그", null));
+		SubtitleSize = Config.Bind("Terminal", "SubtitleSize", 1.4f, new ConfigDescription("cutscene subtitle text size multiplier (1.0 = original) / 컷신 자막 글자 크기 배율 (1.0 = 원래 크기)", new AcceptableValueRange<float>(0.5f, 3f)));
 		KoreanFont = Config.Bind("Terminal", "KoreanFont", "Noto Sans KR", new ConfigDescription("installed Windows font(s) for Korean subtitles/epilogue, comma separated, tried in order; Malgun Gothic is always the fallback / 한국어 자막·엔딩 화면 글꼴(설치된 글꼴 이름, 쉼표로 여러 개). 없으면 맑은 고딕", null));
 		WaterPlanes = Config.Bind("Terminal", "WaterPlanes", defaultValue: true, new ConfigDescription("draw the harbor/pump water planes. turn OFF for one raid as the A/B test for the port-area fps tanking — if the port runs smooth without water, the water shader is the culprit", null));
 		GatesExplosion = Config.Bind("Terminal", "GatesExplosion", defaultValue: true, new ConfigDescription("restore the authored Gates_explosion mechanic: solo open needs ELITE strength (51), or plant an SZ-1 charge (either tpl) on the bomb switch — 5s plant, 10s fuse, real blast opens the gate", null));
@@ -560,6 +563,8 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalLights.Patch_LightsAtRaidStart));
 		Patch(typeof(TerminalLights.Patch_LampsDead));
 		Patch(typeof(TerminalLights.Patch_LampsDeadTick));
+		Patch(typeof(TerminalArtilleryDisposeGuard.Patch_SoundDisposeArmor));
+		Patch(typeof(TerminalRuafNeutral.Patch_RuafProvokedByDamage));
 		Patch(typeof(TerminalCameraDonor.Patch_DumpDonorCamera));
 		Patch(typeof(TerminalCameraDonor.Patch_GraftDonorCamera));
 		Patch(typeof(Patch_RejectShellCameraPrefab));

@@ -94,6 +94,16 @@ internal static class TerminalLang
 					}
 					names.AddRange(new string[4] { "Malgun Gothic", "맑은 고딕", "Gulim", "Dotum" });
 					_koreanFont = Font.CreateDynamicFontFromOSFont(names.ToArray(), 32);
+					// which Korean-capable fonts Unity can see, so F12 KoreanFont can be set to an exact name
+					var seen = new List<string>();
+					foreach (string os in Font.GetOSInstalledFontNames())
+					{
+						if (os.IndexOf("Malgun", StringComparison.OrdinalIgnoreCase) >= 0 || os.IndexOf("Noto", StringComparison.OrdinalIgnoreCase) >= 0 || os.IndexOf("Nanum", StringComparison.OrdinalIgnoreCase) >= 0 || os.IndexOf("Pretendard", StringComparison.OrdinalIgnoreCase) >= 0 || ContainsHangul(os))
+						{
+							seen.Add(os);
+						}
+					}
+					Plugin.Log.LogInfo("[Lang] Korean font tried in order: " + string.Join(", ", names) + " | OS Korean-capable fonts: " + string.Join(", ", seen));
 				}
 				catch (Exception ex)
 				{
