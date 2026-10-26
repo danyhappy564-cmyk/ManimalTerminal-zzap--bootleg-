@@ -758,7 +758,7 @@ internal static class TerminalAcoustics
 		}
 		JToken first = Rows(jObject2, "AmbientAudioSystem").First;
 		string text = first?.Value<string>("go") ?? "AmbientAudioSystem";
-		Dictionary<string, List<Transform>> dictionary = BuildGoIndex();
+		GoIndex dictionary = BuildGoIndex();
 		if (!dictionary.TryGetValue(text, out var value) || value.Count == 0)
 		{
 			Plugin.Log.LogDebug("[Ambient] root '" + text + "' not in the scene yet — retrying");
@@ -2001,7 +2001,7 @@ internal static class TerminalAcoustics
 		}
 		try
 		{
-			Dictionary<string, List<Transform>> goIndex = BuildGoIndex();
+			GoIndex goIndex = BuildGoIndex();
 			int tuned = 0;
 			int stopped = 0;
 			int governed = 0;
@@ -2424,7 +2424,7 @@ internal static class TerminalAcoustics
 			_roomTonesBound = 0;
 			_volumesFixed = 0;
 			_roomToneMisses.Clear();
-			Dictionary<string, List<Transform>> dictionary = BuildGoIndex();
+			GoIndex dictionary = BuildGoIndex();
 			if (!ValidateSpatialSceneBindings(jObject2, dictionary, out var error2))
 			{
 				Plugin.Log.LogError("[Acoustics] RETAIL GRAPH COULD NOT BIND: " + error2 + " — spatial audio remains off");
@@ -2559,39 +2559,109 @@ internal static class TerminalAcoustics
 		return true;
 	}
 
-	private static Dictionary<string, List<Transform>> BuildGoIndex()
+	// zzap perf: the old index walked every transform of every Terminal scene (~300k,
+	// a path string each) — twice per ambient attempt (7.4s on the 10/26 second raid).
+	// Callers only ever ask TryGetValue(path) for a few hundred authored rows, so resolve
+	// each asked-for path by descending only the branches whose path is a prefix of it.
+	// Same answers as the full index: every transform whose "root/child/..." path equals
+	// the key, in the same scene/root/depth-first order (object names containing '/'
+	// included, since matching is done on the concatenated path, not on split segments).
+	private sealed class GoIndex
 	{
-		Dictionary<string, List<Transform>> dictionary = new Dictionary<string, List<Transform>>();
-		for (int i = 0; i < SceneManager.sceneCount; i++)
+		private readonly List<Transform> _roots = new List<Transform>();
+
+		private readonly List<string> _rootNames = new List<string>();
+
+		private readonly Dictionary<Transform, string[]> _childNames = new Dictionary<Transform, string[]>();
+
+		private readonly Dictionary<string, List<Transform>> _memo = new Dictionary<string, List<Transform>>();
+
+		internal GoIndex()
 		{
-			Scene sceneAt = SceneManager.GetSceneAt(i);
-			if (sceneAt.isLoaded && sceneAt.name.StartsWith("Terminal"))
+			for (int i = 0; i < SceneManager.sceneCount; i++)
 			{
-				GameObject[] rootGameObjects = sceneAt.GetRootGameObjects();
-				foreach (GameObject gameObject in rootGameObjects)
+				Scene sceneAt = SceneManager.GetSceneAt(i);
+				if (sceneAt.isLoaded && sceneAt.name.StartsWith("Terminal"))
 				{
-					Walk(gameObject.transform, gameObject.name, dictionary);
+					GameObject[] rootGameObjects = sceneAt.GetRootGameObjects();
+					foreach (GameObject gameObject in rootGameObjects)
+					{
+						_roots.Add(gameObject.transform);
+						_rootNames.Add(gameObject.name);
+					}
 				}
 			}
 		}
-		return dictionary;
+
+		internal bool TryGetValue(string path, out List<Transform> value)
+		{
+			if (path == null)
+			{
+				value = null;
+				return false;
+			}
+			if (!_memo.TryGetValue(path, out var found))
+			{
+				found = new List<Transform>(1);
+				for (int i = 0; i < _roots.Count; i++)
+				{
+					if (_roots[i] != null)
+					{
+						Collect(_roots[i], _rootNames[i], path, found);
+					}
+				}
+				_memo[path] = found;
+			}
+			value = (found.Count > 0) ? found : null;
+			return found.Count > 0;
+		}
+
+		private void Collect(Transform t, string p, string target, List<Transform> found)
+		{
+			if (p.Length > target.Length)
+			{
+				return;
+			}
+			if (p.Length == target.Length)
+			{
+				if (string.Equals(p, target, StringComparison.Ordinal))
+				{
+					found.Add(t);
+				}
+				return;
+			}
+			if (target[p.Length] != '/' || !target.StartsWith(p, StringComparison.Ordinal))
+			{
+				return;
+			}
+			string[] names = ChildNames(t);
+			for (int i = 0; i < names.Length; i++)
+			{
+				Collect(t.GetChild(i), p + "/" + names[i], target, found);
+			}
+		}
+
+		private string[] ChildNames(Transform t)
+		{
+			if (!_childNames.TryGetValue(t, out var names))
+			{
+				names = new string[t.childCount];
+				for (int i = 0; i < names.Length; i++)
+				{
+					names[i] = t.GetChild(i).name;
+				}
+				_childNames[t] = names;
+			}
+			return names;
+		}
 	}
 
-	private static void Walk(Transform t, string path, Dictionary<string, List<Transform>> index)
+	private static GoIndex BuildGoIndex()
 	{
-		if (!index.TryGetValue(path, out var value))
-		{
-			value = (index[path] = new List<Transform>(1));
-		}
-		value.Add(t);
-		for (int i = 0; i < t.childCount; i++)
-		{
-			Transform child = t.GetChild(i);
-			Walk(child, path + "/" + child.name, index);
-		}
+		return new GoIndex();
 	}
 
-	private static Transform FindGo(Dictionary<string, List<Transform>> index, JToken row)
+	private static Transform FindGo(GoIndex index, JToken row)
 	{
 		string text = row.Value<string>("go");
 		if (text == null || !index.TryGetValue(text, out var value))
@@ -2790,7 +2860,7 @@ internal static class TerminalAcoustics
 		return true;
 	}
 
-	private static bool ValidateSpatialSceneBindings(JObject sound, Dictionary<string, List<Transform>> goIndex, out string error)
+	private static bool ValidateSpatialSceneBindings(JObject sound, GoIndex goIndex, out string error)
 	{
 		error = null;
 		string[] array = new string[4] { "AudioTriggerArea", "SpatialAudioPortal", "UniversalTriggerSpatialAudioPortal", "SpatialAudioRoom" };
@@ -2814,7 +2884,7 @@ internal static class TerminalAcoustics
 		return true;
 	}
 
-	private static void CreateAll<T>(JObject scene, string cls, Dictionary<string, List<Transform>> goIndex, Dictionary<long, Component> comps, List<GameObject> reactivate) where T : Component
+	private static void CreateAll<T>(JObject scene, string cls, GoIndex goIndex, Dictionary<long, Component> comps, List<GameObject> reactivate) where T : Component
 	{
 		int num = 0;
 		int num2 = 0;

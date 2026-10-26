@@ -110,6 +110,8 @@ internal static class TerminalLights
 			if (TerminalGate.On)
 			{
 				new GameObject("Terminal_Lights").AddComponent<Host>();
+				// zzap: same raid-start moment — the civilian teleport diagnostic
+				Civilian.CivilianJumpProbe.EnsureForRaid();
 			}
 		}
 	}

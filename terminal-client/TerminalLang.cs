@@ -30,6 +30,8 @@ internal static class TerminalLang
 
 	private static bool _fontTried;
 
+	private static string _fontSetting;
+
 	internal static bool IsKorean
 	{
 		get
@@ -68,17 +70,30 @@ internal static class TerminalLang
 		return english;
 	}
 
-	// a Hangul-capable font for legacy UI/IMGUI text, or null to keep the caller's font
+	// a Hangul-capable font for legacy UI/IMGUI text, or null to keep the caller's font.
+	// F12 Terminal > KoreanFont lists installed font names to try first (comma separated);
+	// Malgun Gothic (every Korean Windows) is always the fallback.
 	internal static Font KoreanFont
 	{
 		get
 		{
-			if (!_fontTried)
+			string setting = Plugin.KoreanFont?.Value ?? "";
+			if (!_fontTried || setting != _fontSetting)
 			{
 				_fontTried = true;
+				_fontSetting = setting;
 				try
 				{
-					_koreanFont = Font.CreateDynamicFontFromOSFont(new string[4] { "Malgun Gothic", "맑은 고딕", "Gulim", "Dotum" }, 32);
+					var names = new List<string>();
+					foreach (string name in setting.Split(','))
+					{
+						if (!string.IsNullOrWhiteSpace(name))
+						{
+							names.Add(name.Trim());
+						}
+					}
+					names.AddRange(new string[4] { "Malgun Gothic", "맑은 고딕", "Gulim", "Dotum" });
+					_koreanFont = Font.CreateDynamicFontFromOSFont(names.ToArray(), 32);
 				}
 				catch (Exception ex)
 				{

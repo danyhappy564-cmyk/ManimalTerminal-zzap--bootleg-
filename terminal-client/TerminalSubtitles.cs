@@ -219,9 +219,14 @@ internal static class TerminalSubtitles
 			// zzap: Bender has no Hangul — Korean lines draw with the OS Korean font
 			_sharedText.font = TerminalLang.FontFor(txt, _benderRegular ?? GUI.skin.font);
 			float num = (float)Screen.width * 0.45f;
-			GUIContent content = new GUIContent(txt.Replace("<b>", "").Replace("</b>", ""));
-			float height = _sharedText.CalcHeight(content, num - (float)_sharedText.padding.horizontal);
-			float num2 = Mathf.Min(_sharedText.CalcSize(content).x + (float)_sharedText.padding.horizontal + 12f, num);
+			// zzap: measure the text as drawn (bold speaker name included). Measuring with
+			// the <b> tags stripped made the box narrower than the bold Korean line, which
+			// then ran past its right edge.
+			GUIContent content = new GUIContent(txt);
+			float measured = _sharedText.CalcSize(content).x;
+			// small slack for synthesized bold on OS fonts, which can draw a hair wider than measured
+			float num2 = Mathf.Min(measured * 1.03f + (float)_sharedText.padding.horizontal + 12f, num);
+			float height = _sharedText.CalcHeight(content, num2 - (float)_sharedText.padding.horizontal);
 			Rect position = new Rect(((float)Screen.width - num2) / 2f, (float)Screen.height * 0.9f, num2, height);
 			Color color = GUI.color;
 			GUI.color = new Color(0f, 0f, 0f, 0.55f);
