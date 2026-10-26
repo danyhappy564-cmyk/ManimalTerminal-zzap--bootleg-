@@ -72,7 +72,9 @@ internal static class TerminalRenderProfiler
 
 	internal static void EnsureSubscribed()
 	{
-		if (!_subscribed)
+		// zzap perf: per-camera pre/post-render callbacks on every camera every frame
+		// are diagnostic only — developer mode
+		if (!_subscribed && Plugin.DevMode.Value)
 		{
 			_subscribed = true;
 			Camera.onPreRender = (Camera.CameraCallback)Delegate.Combine(Camera.onPreRender, new Camera.CameraCallback(OnPreRender));
@@ -110,7 +112,9 @@ internal static class TerminalRenderProfiler
 
 	internal static void TickFrameTimings()
 	{
-		if (!TerminalGate.On)
+		// zzap perf: CaptureFrameTimings every frame reads zeros on most rigs (see
+		// heartbeat) — developer mode only
+		if (!TerminalGate.On || !Plugin.DevMode.Value)
 		{
 			return;
 		}

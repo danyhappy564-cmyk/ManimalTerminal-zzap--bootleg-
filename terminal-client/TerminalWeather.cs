@@ -189,7 +189,7 @@ internal static class TerminalWeather
 					num3++;
 					continue;
 				}
-				Type type = AccessTools.TypeByName(text2);
+				Type type = TerminalTypes.ByName(text2);
 				if (type == null)
 				{
 					Plugin.Log.LogDebug("[Weather] type not in 4.0: " + text2);
@@ -692,7 +692,7 @@ internal static class TerminalWeather
 		JToken jToken = _sidecar?["settings_assets"]?[name];
 		if (jToken != null)
 		{
-			Type type = AccessTools.TypeByName(jToken.Value<string>("class"));
+			Type type = TerminalTypes.ByName(jToken.Value<string>("class"));
 			if (type != null && typeof(ScriptableObject).IsAssignableFrom(type))
 			{
 				ScriptableObject scriptableObject = ScriptableObject.CreateInstance(type);

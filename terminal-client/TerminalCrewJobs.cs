@@ -503,36 +503,9 @@ internal static class TerminalCrewJobs
 				Transform[] array = UnityEngine.Object.FindObjectsOfType<Transform>();
 				foreach (Transform transform2 in array)
 				{
-					if ((bool)transform2 && !(transform2.name != "Administration_03_small"))
-					{
-						float sqrMagnitude = (transform2.position - Tb4Pos).sqrMagnitude;
-						if (sqrMagnitude < num)
-						{
-							num = sqrMagnitude;
-							transform = transform2;
-						}
-					}
+					ConsiderArmory(transform2, ref transform, ref num);
 				}
-				if ((bool)transform)
-				{
-					Renderer[] componentsInChildren = transform.GetComponentsInChildren<Renderer>();
-					if (componentsInChildren.Length != 0)
-					{
-						Bounds bounds = componentsInChildren[0].bounds;
-						Renderer[] array2 = componentsInChildren;
-						foreach (Renderer renderer in array2)
-						{
-							bounds.Encapsulate(renderer.bounds);
-						}
-						bounds.Expand(new Vector3(24f, 6f, 24f));
-						_armoryBounds = bounds;
-						Plugin.Log.LogDebug($"[CrewLayer] armory = Administration_03_small at {transform.position} " + $"(dist to TB4 {Mathf.Sqrt(num):0}m), patrol box {bounds.size}");
-					}
-				}
-				if (!_armoryBounds.HasValue)
-				{
-					Plugin.Log.LogWarning("[CrewLayer] Administration_03_small not found — armory siege falls back to the TB4 area");
-				}
+				ApplyArmory(transform, num);
 			}
 			catch (Exception ex)
 			{
@@ -540,6 +513,106 @@ internal static class TerminalCrewJobs
 			}
 		}
 		return _armoryBounds ?? new Bounds(Tb4Pos, new Vector3(38f, 10f, 38f));
+	}
+
+	private static void ConsiderArmory(Transform transform2, ref Transform best, ref float bestSqr)
+	{
+		if ((bool)transform2 && !(transform2.name != "Administration_03_small"))
+		{
+			float sqrMagnitude = (transform2.position - Tb4Pos).sqrMagnitude;
+			if (sqrMagnitude < bestSqr)
+			{
+				bestSqr = sqrMagnitude;
+				best = transform2;
+			}
+		}
+	}
+
+	private static void ApplyArmory(Transform transform, float num)
+	{
+		if ((bool)transform)
+		{
+			Renderer[] componentsInChildren = transform.GetComponentsInChildren<Renderer>();
+			if (componentsInChildren.Length != 0)
+			{
+				Bounds bounds = componentsInChildren[0].bounds;
+				Renderer[] array2 = componentsInChildren;
+				foreach (Renderer renderer in array2)
+				{
+					bounds.Encapsulate(renderer.bounds);
+				}
+				bounds.Expand(new Vector3(24f, 6f, 24f));
+				_armoryBounds = bounds;
+				Plugin.Log.LogDebug($"[CrewLayer] armory = Administration_03_small at {transform.position} " + $"(dist to TB4 {Mathf.Sqrt(num):0}m), patrol box {bounds.size}");
+			}
+		}
+		if (!_armoryBounds.HasValue)
+		{
+			Plugin.Log.LogWarning("[CrewLayer] Administration_03_small not found — armory siege falls back to the TB4 area");
+		}
+	}
+
+	// zzap perf: ArmoryBounds() ran FindObjectsOfType<Transform>() (every active
+	// transform, a name string each) inside the first hangar bot's brain tick — a
+	// mid-raid hitch. Do the same search ahead of time, 3ms per frame; ArmoryBounds()
+	// keeps its synchronous path in case a bot asks before this finishes.
+	internal static System.Collections.IEnumerator WarmArmoryBounds()
+	{
+		if (_armoryLooked)
+		{
+			yield break;
+		}
+		Transform best = null;
+		float bestSqr = float.MaxValue;
+		var budget = System.Diagnostics.Stopwatch.StartNew();
+		for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+		{
+			UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+			if (!scene.isLoaded)
+			{
+				continue;
+			}
+			GameObject[] roots = scene.GetRootGameObjects();
+			foreach (GameObject root in roots)
+			{
+				if (_armoryLooked)
+				{
+					yield break;
+				}
+				if (!root)
+				{
+					continue;
+				}
+				// active-in-hierarchy only, like FindObjectsOfType
+				Transform[] transforms = root.GetComponentsInChildren<Transform>(includeInactive: false);
+				for (int t = 0; t < transforms.Length; t++)
+				{
+					ConsiderArmory(transforms[t], ref best, ref bestSqr);
+					if (budget.ElapsedMilliseconds >= 3)
+					{
+						yield return null;
+						if (_armoryLooked)
+						{
+							yield break;
+						}
+						budget.Restart();
+					}
+				}
+			}
+		}
+		if (_armoryLooked)
+		{
+			yield break;
+		}
+		_armoryLooked = true;
+		try
+		{
+			ApplyArmory(best, bestSqr);
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log.LogWarning("[CrewLayer] armory lookup failed: " + ex.Message);
+		}
 	}
 
 	internal static void Reset()

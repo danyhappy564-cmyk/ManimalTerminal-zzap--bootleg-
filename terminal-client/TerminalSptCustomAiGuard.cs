@@ -9,7 +9,7 @@ internal static class TerminalSptCustomAiGuard
 {
 	internal static void TryPatch(Harmony harmony)
 	{
-		Type type = AccessTools.TypeByName("SPT.Custom.CustomAI.AIBrainSpawnWeightAdjustment");
+		Type type = TerminalTypes.ByName("SPT.Custom.CustomAI.AIBrainSpawnWeightAdjustment");
 		if (type == null)
 		{
 			return;

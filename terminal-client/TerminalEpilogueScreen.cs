@@ -787,7 +787,7 @@ internal static class TerminalEpilogueScreen
 			}
 			try
 			{
-				Type type = AccessTools.TypeByName("InventoryPlayerModelWithStatsWindow");
+				Type type = TerminalTypes.ByName("InventoryPlayerModelWithStatsWindow");
 				if (type == null)
 				{
 					return;
@@ -1178,7 +1178,7 @@ internal static class TerminalEpilogueScreen
 					return list;
 				}
 				Plugin.Log.LogInfo($"[Epilogue] AchievementsData has {dictionary.Count} unlocked id(s)");
-				Type type = AccessTools.TypeByName("EFT.Quests.ConditionalTemplatesStorage");
+				Type type = TerminalTypes.ByName("EFT.Quests.ConditionalTemplatesStorage");
 				if (type == null)
 				{
 					Plugin.Log.LogWarning("[Epilogue] EFT.Quests.ConditionalTemplatesStorage type not found");
@@ -1358,7 +1358,7 @@ internal static class TerminalEpilogueScreen
 				if (!_prestigeTemplateChecked)
 				{
 					_prestigeTemplateChecked = true;
-					Type type = AccessTools.TypeByName("PrestigeRewardView");
+					Type type = TerminalTypes.ByName("PrestigeRewardView");
 					if (type != null)
 					{
 						UnityEngine.Object[] array = Resources.FindObjectsOfTypeAll(type);
@@ -1959,7 +1959,7 @@ internal static class TerminalEpilogueScreen
 		{
 			try
 			{
-				Type type = AccessTools.TypeByName("EFT.Counters.PredefinedCounters");
+				Type type = TerminalTypes.ByName("EFT.Counters.PredefinedCounters");
 				if (type == null)
 				{
 					return 0L;

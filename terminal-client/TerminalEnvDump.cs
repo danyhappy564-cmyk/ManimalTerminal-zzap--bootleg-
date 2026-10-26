@@ -105,7 +105,7 @@ internal static class TerminalEnvDump
 
 	private static void DumpPostVolumes(ManualLogSource L)
 	{
-		Type type = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
+		Type type = TerminalTypes.ByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
 		if (type == null)
 		{
 			L.LogWarning("[RenderEnv] PostProcessVolume type not found");

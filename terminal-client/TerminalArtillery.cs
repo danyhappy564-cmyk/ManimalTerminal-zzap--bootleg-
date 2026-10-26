@@ -214,7 +214,7 @@ internal static class TerminalArtillery
 				Plugin.Log.LogWarning("[Artillery] backend ArtilleryShelling config absent — no barrage");
 				return;
 			}
-			Type type = AccessTools.TypeByName("CommonAssets.Scripts.ArtilleryShelling.ArtilleryShellingMapConfiguration") ?? AccessTools.TypeByName("ArtilleryShellingMapConfiguration");
+			Type type = TerminalTypes.ByName("CommonAssets.Scripts.ArtilleryShelling.ArtilleryShellingMapConfiguration") ?? TerminalTypes.ByName("ArtilleryShellingMapConfiguration");
 			if (type == null)
 			{
 				Plugin.Log.LogWarning("[Artillery] map-config type missing");

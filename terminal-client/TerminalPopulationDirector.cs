@@ -103,6 +103,27 @@ internal static class TerminalPopulationDirector
 	{
 		private static readonly FieldInfo BleedingPlayers = AccessTools.Field(typeof(EffectsCommutator), "_playerBleedingDecalTimes");
 
+		// zzap perf: this runs every frame; GetType().GetProperty("Key") per entry was a
+		// reflection lookup per bleeding player per frame — cache it per element type
+		private static Type _keyOwner;
+
+		private static PropertyInfo _keyProp;
+
+		private static object KeyOf(object entry)
+		{
+			if (entry == null)
+			{
+				return null;
+			}
+			Type type = entry.GetType();
+			if (type != _keyOwner)
+			{
+				_keyOwner = type;
+				_keyProp = type.GetProperty("Key");
+			}
+			return _keyProp?.GetValue(entry);
+		}
+
 		[HarmonyPrefix]
 		private static void Prefix(EffectsCommutator __instance)
 		{
@@ -113,7 +134,7 @@ internal static class TerminalPopulationDirector
 			for (int num = list.Count - 1; num >= 0; num--)
 			{
 				object obj = list[num];
-				object obj2 = obj?.GetType().GetProperty("Key")?.GetValue(obj);
+				object obj2 = KeyOf(obj);
 				if (obj2 == null || (obj2 is UnityEngine.Object obj3 && !obj3))
 				{
 					list.RemoveAt(num);
@@ -708,17 +729,12 @@ internal static class TerminalPopulationDirector
 
 	internal static bool IsRuaf(WildSpawnType role)
 	{
-		string text = role.ToString();
-		if (text.IndexOf("ruaf", StringComparison.OrdinalIgnoreCase) < 0)
-		{
-			return text.IndexOf("vsrf", StringComparison.OrdinalIgnoreCase) >= 0;
-		}
-		return true;
+		return TerminalRoles.IsRuaf(role);
 	}
 
 	internal static bool IsBlackDivision(WildSpawnType role)
 	{
-		return role.ToString().IndexOf("blackdiv", StringComparison.OrdinalIgnoreCase) >= 0;
+		return TerminalRoles.Name(role).IndexOf("blackdiv", StringComparison.OrdinalIgnoreCase) >= 0;
 	}
 
 	private static string ZoneName(BotOwner bot)

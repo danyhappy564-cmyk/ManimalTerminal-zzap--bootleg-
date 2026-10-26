@@ -98,6 +98,7 @@ internal static class TerminalWater
 	internal static void ResetForRaid()
 	{
 		CleanupAttempt();
+		_texIndex = null;
 		_staged = false;
 		_ready = false;
 		_staging = false;
@@ -234,6 +235,7 @@ internal static class TerminalWater
 		finally
 		{
 			_staging = false;
+			_texIndex = null; // don't keep every texture referenced after staging
 		}
 	}
 
@@ -603,17 +605,29 @@ internal static class TerminalWater
 		return null;
 	}
 
+	// zzap perf: TryStage asks for ~5 textures in one frame; scan all Texture2D once
+	// per frame instead of once per name (first match by name, same as before)
+	private static Dictionary<string, Texture2D> _texIndex;
+
+	private static int _texIndexFrame = -1;
+
 	private static Texture2D FindTexture(string exactName)
 	{
-		Texture2D[] array = Resources.FindObjectsOfTypeAll<Texture2D>();
-		foreach (Texture2D texture2D in array)
+		if (_texIndex == null || _texIndexFrame != Time.frameCount)
 		{
-			if ((bool)texture2D && texture2D.name == exactName)
+			_texIndexFrame = Time.frameCount;
+			_texIndex = new Dictionary<string, Texture2D>();
+			Texture2D[] array = Resources.FindObjectsOfTypeAll<Texture2D>();
+			foreach (Texture2D texture2D in array)
 			{
-				return texture2D;
+				if ((bool)texture2D && !_texIndex.ContainsKey(texture2D.name))
+				{
+					_texIndex[texture2D.name] = texture2D;
+				}
 			}
 		}
-		return null;
+		_texIndex.TryGetValue(exactName, out var found);
+		return found;
 	}
 
 	private static void SetFloat(Material material, string property, float value)

@@ -16,7 +16,7 @@ internal sealed class CivilianMotionMatchingPatch : ModulePatch
 
 	protected override MethodBase GetTargetMethod()
 	{
-		Type type = AccessTools.TypeByName("Manimal.MotionMatching.MotionOwnership");
+		Type type = TerminalTypes.ByName("Manimal.MotionMatching.MotionOwnership");
 		MethodInfo methodInfo = ((type == null) ? null : AccessTools.Method(type, "Resolve", new Type[1] { typeof(Player) }));
 		if (methodInfo == null || !methodInfo.IsStatic || methodInfo.ReturnType != typeof(int))
 		{

@@ -12,7 +12,7 @@ internal static class TerminalCrashGuard
 
 	internal static void TryPatch(Harmony h)
 	{
-		Type type = AccessTools.TypeByName("EFT.EftClientBackendSession");
+		Type type = TerminalTypes.ByName("EFT.EftClientBackendSession");
 		if (type == null)
 		{
 			Plugin.Log.LogError("[CrashGuard] could not resolve type 'EFT.EftClientBackendSession' — obfuscated name likely drifted on this game build. This crash site is UNGUARDED until fixed.");

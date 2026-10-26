@@ -120,6 +120,27 @@ internal static class TerminalShaderRebind
 		Plugin.Log.LogDebug($"[RebindShaders] sync pass: {hashSet.Count} materials, {rebound} rebound, {skipped} skipped{MissingShaderReport()}");
 	}
 
+	// zzap perf: RebindNow semantics (only scene-owned materials, once each) limited to
+	// one subtree — the crane stager only needs its own renderers, not a full-scene
+	// FindObjectsOfType in the raid's first frame (the sliced raid-start pass covers
+	// everything else).
+	internal static void RebindNowUnder(Transform root)
+	{
+		if (root == null)
+		{
+			return;
+		}
+		int rebound = 0;
+		int skipped = 0;
+		HashSet<Material> hashSet = new HashSet<Material>();
+		Renderer[] array = root.GetComponentsInChildren<Renderer>(includeInactive: true);
+		for (int i = 0; i < array.Length; i++)
+		{
+			Rebind(array[i], hashSet, ref rebound, ref skipped);
+		}
+		Plugin.Log.LogDebug($"[RebindShaders] scoped sync pass under '{root.name}': {hashSet.Count} materials, {rebound} rebound, {skipped} skipped");
+	}
+
 	internal static int RebindShadersUnder(Transform root)
 	{
 		if (root == null)

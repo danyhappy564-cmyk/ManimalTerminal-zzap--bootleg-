@@ -187,7 +187,7 @@ internal static class TerminalCameraDonor
 				{
 					continue;
 				}
-				Type type = AccessTools.TypeByName((string?)jObject["type"]);
+				Type type = TerminalTypes.ByName((string?)jObject["type"]);
 				if (type == null || !typeof(Component).IsAssignableFrom(type))
 				{
 					num2++;

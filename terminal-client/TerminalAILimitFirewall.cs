@@ -38,7 +38,7 @@ internal static class TerminalAILimitFirewall
 			{
 				return;
 			}
-			Type type = AccessTools.TypeByName("AILimit.AILimitComponent");
+			Type type = TerminalTypes.ByName("AILimit.AILimitComponent");
 			if (type == null)
 			{
 				return;

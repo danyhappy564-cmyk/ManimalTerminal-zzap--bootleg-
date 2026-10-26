@@ -35,52 +35,7 @@ internal static class TerminalSceneScrub
 			MeshRenderer[] componentsInChildren = rootGameObjects[i].GetComponentsInChildren<MeshRenderer>(includeInactive: true);
 			foreach (MeshRenderer meshRenderer in componentsInChildren)
 			{
-				if (!meshRenderer || meshRenderer.forceRenderingOff)
-				{
-					continue;
-				}
-				MeshFilter component = meshRenderer.GetComponent<MeshFilter>();
-				if (IsStencilHelper(meshRenderer.name) || ((bool)component && (bool)component.sharedMesh && IsStencilHelper(component.sharedMesh.name)))
-				{
-					meshRenderer.forceRenderingOff = true;
-					num2++;
-					continue;
-				}
-				bool flag = LayerMask.LayerToName(meshRenderer.gameObject.layer) == "LevelBorder";
-				if (!flag)
-				{
-					Transform transform = meshRenderer.transform;
-					while (transform != null)
-					{
-						if (transform.name == "BLOCKERS" || transform.name == "Blockers")
-						{
-							flag = true;
-							break;
-						}
-						transform = transform.parent;
-					}
-				}
-				if (!flag && meshRenderer.name.StartsWith("Cube"))
-				{
-					Material sharedMaterial = meshRenderer.sharedMaterial;
-					if ((bool)sharedMaterial && sharedMaterial.name.StartsWith("Default-Material"))
-					{
-						flag = true;
-					}
-				}
-				if (!flag && meshRenderer.name.StartsWith("Cube"))
-				{
-					num3++;
-					if (num4 < 0)
-					{
-						num4 = meshRenderer.gameObject.layer;
-					}
-				}
-				if (flag)
-				{
-					meshRenderer.forceRenderingOff = true;
-					num++;
-				}
+				HideOne(meshRenderer, ref num, ref num2, ref num3, ref num4);
 			}
 		}
 		if (num > 0)
@@ -96,6 +51,58 @@ internal static class TerminalSceneScrub
 			Plugin.Log.LogInfo($"[Scrub] '{scene.name}': {num2} stencil helper renderer(s) hidden (colliders preserved)");
 		}
 		return num + num2;
+	}
+
+	// one renderer of the blocker/stencil scrub (body unchanged, split out so the
+	// late sweep can run it a few milliseconds per frame)
+	private static void HideOne(MeshRenderer meshRenderer, ref int blockers, ref int stencils, ref int cubes, ref int cubeLayer)
+	{
+		if (!meshRenderer || meshRenderer.forceRenderingOff)
+		{
+			return;
+		}
+		MeshFilter component = meshRenderer.GetComponent<MeshFilter>();
+		if (IsStencilHelper(meshRenderer.name) || ((bool)component && (bool)component.sharedMesh && IsStencilHelper(component.sharedMesh.name)))
+		{
+			meshRenderer.forceRenderingOff = true;
+			stencils++;
+			return;
+		}
+		bool flag = LayerMask.LayerToName(meshRenderer.gameObject.layer) == "LevelBorder";
+		if (!flag)
+		{
+			Transform transform = meshRenderer.transform;
+			while (transform != null)
+			{
+				if (transform.name == "BLOCKERS" || transform.name == "Blockers")
+				{
+					flag = true;
+					break;
+				}
+				transform = transform.parent;
+			}
+		}
+		if (!flag && meshRenderer.name.StartsWith("Cube"))
+		{
+			Material sharedMaterial = meshRenderer.sharedMaterial;
+			if ((bool)sharedMaterial && sharedMaterial.name.StartsWith("Default-Material"))
+			{
+				flag = true;
+			}
+		}
+		if (!flag && meshRenderer.name.StartsWith("Cube"))
+		{
+			cubes++;
+			if (cubeLayer < 0)
+			{
+				cubeLayer = meshRenderer.gameObject.layer;
+			}
+		}
+		if (flag)
+		{
+			meshRenderer.forceRenderingOff = true;
+			blockers++;
+		}
 	}
 
 	private static bool IsStencilHelper(string name)
@@ -134,25 +141,75 @@ internal static class TerminalSceneScrub
 			return;
 		}
 		_lateSwept = true;
-		int num = 0;
-		int num2 = 0;
-		for (int i = 0; i < SceneManager.sceneCount; i++)
+		// zzap perf: the same sweep cost ~1.1s in the raid's first frame (and found 0
+		// stragglers in the 10/26 log) — run it 3ms per frame instead
+		new GameObject("Terminal_LateScrubSweep").AddComponent<LateSweepHost>();
+	}
+
+	private sealed class LateSweepHost : MonoBehaviour
+	{
+		private void Start()
 		{
-			Scene sceneAt = SceneManager.GetSceneAt(i);
-			if (sceneAt.isLoaded && sceneAt.name != null && sceneAt.name.StartsWith("Terminal"))
+			StartCoroutine(Run());
+		}
+
+		private System.Collections.IEnumerator Run()
+		{
+			int hidden = 0;
+			int scenes = 0;
+			int stencils = 0;
+			int cubes = 0;
+			int cubeLayer = -1;
+			var budget = System.Diagnostics.Stopwatch.StartNew();
+			for (int i = 0; i < SceneManager.sceneCount; i++)
 			{
+				Scene sceneAt = SceneManager.GetSceneAt(i);
+				if (!sceneAt.isLoaded || sceneAt.name == null || !sceneAt.name.StartsWith("Terminal"))
+				{
+					continue;
+				}
+				scenes++;
+				GameObject[] roots;
 				try
 				{
-					num += HideBlockers(sceneAt);
-					num2++;
+					roots = sceneAt.GetRootGameObjects();
 				}
 				catch (Exception ex)
 				{
 					Plugin.Log.LogWarning("[Scrub] late sweep '" + sceneAt.name + "': " + ex.Message);
+					continue;
+				}
+				foreach (GameObject root in roots)
+				{
+					if (!root)
+					{
+						continue;
+					}
+					MeshRenderer[] renderers = root.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+					for (int r = 0; r < renderers.Length; r++)
+					{
+						try
+						{
+							HideOne(renderers[r], ref hidden, ref stencils, ref cubes, ref cubeLayer);
+						}
+						catch (Exception ex2)
+						{
+							Plugin.Log.LogWarning("[Scrub] late sweep '" + sceneAt.name + "': " + ex2.Message);
+						}
+						if (budget.ElapsedMilliseconds >= 3)
+						{
+							yield return null;
+							budget.Restart();
+						}
+					}
 				}
 			}
+			Plugin.Log.LogInfo($"[Scrub] late blocker sweep over {scenes} scene(s): {hidden + stencils} straggler renderer(s) hidden");
+			// same quiet slot: pre-compute the hangar crew's armory box so the first
+			// hangar bot does not pay a whole-scene search mid-raid
+			yield return TerminalCrewJobs.WarmArmoryBounds();
+			UnityEngine.Object.Destroy(gameObject);
 		}
-		Plugin.Log.LogInfo($"[Scrub] late blocker sweep over {num2} scene(s): {num} straggler renderer(s) hidden");
 	}
 
 	internal static void Scrub(Scene scene)
@@ -166,7 +223,7 @@ internal static class TerminalSceneScrub
 				string[] brokenTypes = BrokenTypes;
 				foreach (string text in brokenTypes)
 				{
-					Type type = AccessTools.TypeByName(text);
+					Type type = TerminalTypes.ByName(text);
 					if (type != null && typeof(Component).IsAssignableFrom(type))
 					{
 						list.Add(type);

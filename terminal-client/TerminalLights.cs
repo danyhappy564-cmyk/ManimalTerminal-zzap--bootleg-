@@ -24,7 +24,7 @@ internal static class TerminalLights
 	{
 		private static IEnumerable<MethodBase> TargetMethods()
 		{
-			string[] array = new string[4] { "Awake", "OnEnable", "ManualUpdate", "TurnLights" };
+			string[] array = new string[2] { "Awake", "OnEnable" };
 			string[] array2 = array;
 			foreach (string name in array2)
 			{
@@ -39,15 +39,65 @@ internal static class TerminalLights
 		[HarmonyPrefix]
 		private static bool Prefix(LampController __instance)
 		{
-			try
+			return !IsTerminalLamp(__instance, fresh: true);
+		}
+	}
+
+	// zzap perf: ManualUpdate runs for every lamp every frame on EVERY map (Streets has
+	// thousands), and the old prefix read gameObject.scene.name — a native call and a
+	// new string each time. The scene a lamp lives in does not change, so it is read
+	// once (Awake/OnEnable or first tick) and remembered by instance id.
+	[HarmonyPatch]
+	internal static class Patch_LampsDeadTick
+	{
+		private static IEnumerable<MethodBase> TargetMethods()
+		{
+			string[] array = new string[2] { "ManualUpdate", "TurnLights" };
+			foreach (string name in array)
 			{
-				string text = ((__instance != null) ? __instance.gameObject.scene.name : null);
-				return string.IsNullOrEmpty(text) || !text.StartsWith("Terminal", StringComparison.OrdinalIgnoreCase);
+				MethodInfo methodInfo = AccessTools.Method(typeof(LampController), name);
+				if (methodInfo != null)
+				{
+					yield return methodInfo;
+				}
 			}
-			catch
+		}
+
+		[HarmonyPrefix]
+		private static bool Prefix(LampController __instance)
+		{
+			return !IsTerminalLamp(__instance, fresh: false);
+		}
+	}
+
+	private static readonly Dictionary<int, bool> _lampIsTerminal = new Dictionary<int, bool>();
+
+	internal static void ResetLampSceneCache()
+	{
+		_lampIsTerminal.Clear();
+	}
+
+	private static bool IsTerminalLamp(LampController lamp, bool fresh)
+	{
+		try
+		{
+			if (lamp == null)
 			{
-				return !TerminalGate.On;
+				return false;
 			}
+			int id = lamp.GetInstanceID();
+			if (!fresh && _lampIsTerminal.TryGetValue(id, out var known))
+			{
+				return known;
+			}
+			string text = lamp.gameObject.scene.name;
+			bool terminal = !string.IsNullOrEmpty(text) && text.StartsWith("Terminal", StringComparison.OrdinalIgnoreCase);
+			_lampIsTerminal[id] = terminal;
+			return terminal;
+		}
+		catch
+		{
+			return TerminalGate.On;
 		}
 	}
 
@@ -149,25 +199,31 @@ internal static class TerminalLights
 			{
 				DumpNearPlayerSounds();
 			}
-			if (_opticCam == null)
+			// zzap perf: Camera.allCameras allocates a fresh array and each .name a string;
+			// this polled every frame for the whole raid while no scope camera exists
+			// (always, with PiP-Disabler) — look twice a second instead
+			if (Time.frameCount % 30 == 11)
 			{
-				Camera[] allCameras = Camera.allCameras;
-				for (int i = 0; i < allCameras.Length; i++)
+				if (_opticCam == null)
 				{
-					if (allCameras[i] != null && allCameras[i].name == "BaseOpticCamera(Clone)")
+					Camera[] allCameras = Camera.allCameras;
+					for (int i = 0; i < allCameras.Length; i++)
 					{
-						_opticCam = allCameras[i];
-						break;
+						if (allCameras[i] != null && allCameras[i].name == "BaseOpticCamera(Clone)")
+						{
+							_opticCam = allCameras[i];
+							break;
+						}
 					}
 				}
-			}
-			if (_opticCam != null)
-			{
-				TOD_Scattering component = _opticCam.GetComponent<TOD_Scattering>();
-				if (component != null && component.enabled)
+				if (_opticCam != null)
 				{
-					component.enabled = false;
-					Plugin.Log.LogInfo("[Lights] optic camera TOD_Scattering disabled (dark magnified scopes)");
+					TOD_Scattering component = _opticCam.GetComponent<TOD_Scattering>();
+					if (component != null && component.enabled)
+					{
+						component.enabled = false;
+						Plugin.Log.LogInfo("[Lights] optic camera TOD_Scattering disabled (dark magnified scopes)");
+					}
 				}
 			}
 			if (Time.frameCount % 30 == 0)
@@ -252,6 +308,7 @@ internal static class TerminalLights
 
 	internal static void ResetForNewRaid()
 	{
+		ResetLampSceneCache();
 		_lamps.Clear();
 		_nativeCutsceneLights.Clear();
 		_cutsceneVisibleLights.Clear();

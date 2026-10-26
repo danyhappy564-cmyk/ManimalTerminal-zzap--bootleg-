@@ -460,32 +460,11 @@ internal static class TerminalAcoustics
 		Plugin.Log.LogInfo($"[ShoreAudio] '{clipName}' bound to {num} authored shoreline player(s)");
 	}
 
+	// zzap perf: was TypeByName + a second full GetTypes() scan of every assembly on each
+	// call, repeated on every ambient attempt — now cached (TerminalTypes)
 	private static Type ResolveType(string name)
 	{
-		Type type = AccessTools.TypeByName(name);
-		if (type != null)
-		{
-			return type;
-		}
-		Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-		foreach (Assembly assembly in assemblies)
-		{
-			try
-			{
-				Type[] types = assembly.GetTypes();
-				foreach (Type type2 in types)
-				{
-					if (type2.Name == name || type2.FullName == name)
-					{
-						return type2;
-					}
-				}
-			}
-			catch
-			{
-			}
-		}
-		return null;
+		return TerminalTypes.ByNameOrShort(name);
 	}
 
 	internal static void TickDiagnostics()

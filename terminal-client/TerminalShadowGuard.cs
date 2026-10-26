@@ -29,23 +29,42 @@ internal static class TerminalShadowGuard
 		_dumped = false;
 		_lastKilled = 0;
 		_lastAlive = -1;
+		_lastRefreshAt = -100f;
 		_candidates.Clear();
+		_lamps.Clear();
+		_isMapLight.Clear();
 	}
+
+	// zzap perf: Refresh() walks ~1900 lights and every parent's components (~28ms).
+	// It ran on every change of the alive count — with bots spawning and dying that was
+	// roughly once a second. Alive-count refreshes are now at least 5s apart (the 20s
+	// timer is unchanged), and a light's map/actor classification is remembered.
+	private static float _lastRefreshAt = -100f;
+
+	private static readonly Dictionary<int, bool> _isMapLight = new Dictionary<int, bool>();
 
 	private static bool IsMapLight(Light l)
 	{
 		try
 		{
+			int id = l.GetInstanceID();
+			if (_isMapLight.TryGetValue(id, out var known))
+			{
+				return known;
+			}
+			bool result = false;
 			Transform transform = l.transform;
 			while (transform != null)
 			{
 				if (transform.GetComponent<CullingLightObject>() != null)
 				{
-					return true;
+					result = true;
+					break;
 				}
 				transform = transform.parent;
 			}
-			return false;
+			_isMapLight[id] = result;
+			return result;
 		}
 		catch
 		{
@@ -71,9 +90,10 @@ internal static class TerminalShadowGuard
 			catch
 			{
 			}
-			if (num != _lastAlive || Time.realtimeSinceStartup >= _nextRefresh)
+			if ((num != _lastAlive && Time.realtimeSinceStartup - _lastRefreshAt >= 5f) || Time.realtimeSinceStartup >= _nextRefresh)
 			{
 				_lastAlive = num;
+				_lastRefreshAt = Time.realtimeSinceStartup;
 				_nextRefresh = Time.realtimeSinceStartup + 20f;
 				Refresh();
 			}

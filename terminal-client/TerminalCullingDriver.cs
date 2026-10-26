@@ -1049,7 +1049,7 @@ internal class TerminalCullingDriver : MonoBehaviour
 				if (_amPresent)
 				{
 					_amMbCfg = Type.GetType("AmandsGraphics.AmandsGraphicsPlugin, AmandsGraphics")?.GetProperty("MotionBlur", BindingFlags.Static | BindingFlags.Public)?.GetValue(null) as ConfigEntryBase;
-					_amVolType = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
+					_amVolType = TerminalTypes.ByName("UnityEngine.Rendering.PostProcessing.PostProcessVolume");
 					if (_amVolType != null)
 					{
 						_amProfileProp = AccessTools.Property(_amVolType, "profile");

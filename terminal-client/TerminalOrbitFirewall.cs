@@ -44,7 +44,7 @@ internal static class TerminalOrbitFirewall
 		for (int i = 0; i < array2.Length; i++)
 		{
 			(string, string) tuple = array2[i];
-			Type type = AccessTools.TypeByName(tuple.Item1);
+			Type type = TerminalTypes.ByName(tuple.Item1);
 			MethodInfo methodInfo = ((type != null) ? AccessTools.Method(type, tuple.Item2) : null);
 			if (methodInfo != null)
 			{
@@ -55,7 +55,7 @@ internal static class TerminalOrbitFirewall
 		{
 			return;
 		}
-		Type type2 = AccessTools.TypeByName("Orbit.Brain.OrbitBrainLayer");
+		Type type2 = TerminalTypes.ByName("Orbit.Brain.OrbitBrainLayer");
 		MethodInfo methodInfo2 = ((type2 != null) ? AccessTools.Method(type2, "IsExcludedRole", new Type[1] { typeof(BotOwner) }) : null);
 		if (methodInfo2 == null)
 		{

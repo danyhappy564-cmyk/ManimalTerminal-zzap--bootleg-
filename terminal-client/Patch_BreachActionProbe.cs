@@ -16,7 +16,7 @@ internal static class Patch_BreachActionProbe
 
 	private static IEnumerable<MethodBase> TargetMethods()
 	{
-		Type type = AccessTools.TypeByName("EFT.InteractionContextHelper");
+		Type type = TerminalTypes.ByName("EFT.InteractionContextHelper");
 		if (type == null)
 		{
 			yield break;

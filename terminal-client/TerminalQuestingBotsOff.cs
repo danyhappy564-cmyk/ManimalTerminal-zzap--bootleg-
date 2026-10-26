@@ -8,8 +8,8 @@ internal static class TerminalQuestingBotsOff
 {
 	internal static void TryPatch(Harmony h)
 	{
-		Type type = AccessTools.TypeByName("QuestingBots.Components.Spawning.PMCGenerator");
-		Type type2 = AccessTools.TypeByName("QuestingBots.Components.Spawning.PScavGenerator");
+		Type type = TerminalTypes.ByName("QuestingBots.Components.Spawning.PMCGenerator");
+		Type type2 = TerminalTypes.ByName("QuestingBots.Components.Spawning.PScavGenerator");
 		if (type == null && type2 == null)
 		{
 			return;
@@ -34,14 +34,14 @@ internal static class TerminalQuestingBotsOff
 				}
 			}
 		}
-		Type type4 = AccessTools.TypeByName("QuestingBots.Patches.Spawning.ActivateBossesByWavePatch");
+		Type type4 = TerminalTypes.ByName("QuestingBots.Patches.Spawning.ActivateBossesByWavePatch");
 		MethodInfo methodInfo3 = ((type4 == null) ? null : AccessTools.DeclaredMethod(type4, "shouldSuppressBossWave"));
 		if (methodInfo3 != null)
 		{
 			h.Patch((MethodBase)methodInfo3, new HarmonyMethod(typeof(TerminalQuestingBotsOff), "SkipFalse"), (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null, (HarmonyMethod)null);
 			num++;
 		}
-		Type type5 = AccessTools.TypeByName("QuestingBots.Patches.Spawning.GameStartPatch");
+		Type type5 = TerminalTypes.ByName("QuestingBots.Patches.Spawning.GameStartPatch");
 		MethodInfo methodInfo4 = ((type5 == null) ? null : AccessTools.PropertyGetter(type5, "IsDelayingGameStart"));
 		if (methodInfo4 != null)
 		{

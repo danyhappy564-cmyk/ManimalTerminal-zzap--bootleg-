@@ -40,7 +40,7 @@ internal static class TerminalSainCompat
 			{
 				return;
 			}
-			Type type = AccessTools.TypeByName("SAIN.Components.LocationClass");
+			Type type = TerminalTypes.ByName("SAIN.Components.LocationClass");
 			if (type == null)
 			{
 				return;
@@ -75,7 +75,7 @@ internal static class TerminalSainCompat
 		}
 		try
 		{
-			Type type = __result?.GetType() ?? AccessTools.TypeByName("SAIN.Preset.Shared.Enums.ELocation") ?? AccessTools.TypeByName("SAIN.ELocation") ?? AccessTools.TypeByName("ELocation");
+			Type type = __result?.GetType() ?? TerminalTypes.ByName("SAIN.Preset.Shared.Enums.ELocation") ?? TerminalTypes.ByName("SAIN.ELocation") ?? TerminalTypes.ByName("ELocation");
 			if (type == null || !type.IsEnum)
 			{
 				return true;

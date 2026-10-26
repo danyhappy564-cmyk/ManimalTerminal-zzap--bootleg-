@@ -49,7 +49,8 @@ internal static class Patch_PumpSwitchActions
 	{
 		try
 		{
-			if (!Plugin.PumpStation.Value || interactiveSwitch == null || !Ours(interactiveSwitch))
+			// zzap perf: cached map flag first (see Patch_GateSwitchActions)
+			if (!TerminalGate.On || !Plugin.PumpStation.Value || interactiveSwitch == null || !Ours(interactiveSwitch))
 			{
 				return;
 			}

@@ -37,7 +37,7 @@ internal static class TerminalLockableDoorsOff
 				var (text, text2) = targets[i];
 				try
 				{
-					Type type = AccessTools.TypeByName(text);
+					Type type = TerminalTypes.ByName(text);
 					MethodInfo methodInfo = ((type != null) ? AccessTools.Method(type, text2) : null);
 					if (methodInfo == null)
 					{

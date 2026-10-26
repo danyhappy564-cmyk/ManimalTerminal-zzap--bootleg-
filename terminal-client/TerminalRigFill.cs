@@ -55,9 +55,65 @@ internal static class TerminalRigFill
 		}
 	}
 
+	// zzap perf: every stager (gates/crane/exit/artillery/water/pump...) used to walk
+	// the whole Terminal hierarchy (~200k transforms, a fresh name string each) on its
+	// own, every frame until its root showed up — all of them in the raid's first
+	// frame. Now one walk collects every name asked for so far, results are cached
+	// for the raid, and a miss is re-walked at most once a second. First match in the
+	// same scene/root/depth-first order as before.
+	private static readonly Dictionary<string, Transform> _rootCache = new Dictionary<string, Transform>();
+
+	private static readonly HashSet<string> _rootWanted = new HashSet<string>();
+
+	private static float _nextRootWalk;
+
+	internal static void ResetForRaid()
+	{
+		_rootCache.Clear();
+		_rootWanted.Clear();
+		_nextRootWalk = 0f;
+		_mixerGroups = null;
+	}
+
 	internal static Transform FindRootNamed(string name)
 	{
-		for (int i = 0; i < SceneManager.sceneCount; i++)
+		if (_rootCache.TryGetValue(name, out var cached))
+		{
+			if (cached != null)
+			{
+				return cached;
+			}
+			_rootCache.Remove(name);
+		}
+		bool fresh = _rootWanted.Add(name);
+		if (!fresh && Time.realtimeSinceStartup < _nextRootWalk)
+		{
+			return null;
+		}
+		WalkForWantedRoots();
+		_rootCache.TryGetValue(name, out var found);
+		if (found == null)
+		{
+			_nextRootWalk = Time.realtimeSinceStartup + 1f;
+		}
+		return found;
+	}
+
+	private static void WalkForWantedRoots()
+	{
+		int missing = 0;
+		foreach (string wanted in _rootWanted)
+		{
+			if (!_rootCache.ContainsKey(wanted))
+			{
+				missing++;
+			}
+		}
+		if (missing == 0)
+		{
+			return;
+		}
+		for (int i = 0; i < SceneManager.sceneCount && missing > 0; i++)
 		{
 			Scene sceneAt = SceneManager.GetSceneAt(i);
 			if (!sceneAt.isLoaded || sceneAt.name == null || !sceneAt.name.StartsWith("Terminal"))
@@ -65,16 +121,29 @@ internal static class TerminalRigFill
 				continue;
 			}
 			GameObject[] rootGameObjects = sceneAt.GetRootGameObjects();
-			for (int j = 0; j < rootGameObjects.Length; j++)
+			for (int j = 0; j < rootGameObjects.Length && missing > 0; j++)
 			{
-				Transform transform = FindChildNamed(rootGameObjects[j].transform, name);
-				if (transform != null)
-				{
-					return transform;
-				}
+				CollectWanted(rootGameObjects[j].transform, ref missing);
 			}
 		}
-		return null;
+	}
+
+	private static void CollectWanted(Transform t, ref int missing)
+	{
+		string n = t.name;
+		if (_rootWanted.Contains(n) && !_rootCache.ContainsKey(n))
+		{
+			_rootCache[n] = t;
+			missing--;
+			if (missing == 0)
+			{
+				return;
+			}
+		}
+		for (int i = 0; i < t.childCount && missing > 0; i++)
+		{
+			CollectWanted(t.GetChild(i), ref missing);
+		}
 	}
 
 	internal static Transform FindChildNamed(Transform root, string name)
@@ -104,9 +173,23 @@ internal static class TerminalRigFill
 		}
 	}
 
+	// zzap perf: AccessTools.TypeByName falls back to scanning every type of every
+	// loaded assembly when the name misses, and the first two namespaces usually miss
+	// — ~0.1-0.2s per row, 2.4s for the 10 gate rows in one frame. Ask Assembly-CSharp
+	// directly first (where these handlers live), keep TypeByName as the last resort,
+	// and remember the answer (including "not found").
+	private static readonly Dictionary<string, Type> _typeCache = new Dictionary<string, Type>();
+
 	internal static Type TypeFor(string cls)
 	{
-		return AccessTools.TypeByName("EFT.GameTriggers." + cls) ?? AccessTools.TypeByName("CommonAssets.Scripts.Game.GameTriggers.Handlers." + cls) ?? AccessTools.TypeByName(cls);
+		if (_typeCache.TryGetValue(cls, out var cached))
+		{
+			return cached;
+		}
+		Assembly game = typeof(GameWorld).Assembly;
+		Type type = game.GetType("EFT.GameTriggers." + cls) ?? game.GetType("CommonAssets.Scripts.Game.GameTriggers.Handlers." + cls) ?? game.GetType(cls) ?? TerminalTypes.ByName("EFT.GameTriggers." + cls) ?? TerminalTypes.ByName("CommonAssets.Scripts.Game.GameTriggers.Handlers." + cls) ?? TerminalTypes.ByName(cls);
+		_typeCache[cls] = type;
+		return type;
 	}
 
 	internal static int StageRows(JArray rows, HashSet<string> nativeSet, Dictionary<string, Transform> index, string tag, Action<Component, JObject> postFill = null)
@@ -319,18 +402,33 @@ internal static class TerminalRigFill
 		}
 		if (want.Name == "AudioMixerGroup")
 		{
-			UnityEngine.Object[] array = Resources.FindObjectsOfTypeAll(want);
-			foreach (UnityEngine.Object obj in array)
+			// zzap perf: one FindObjectsOfTypeAll per frame at most instead of one per
+			// field (a miss in a later frame rescans, in case the group loaded since)
+			if (_mixerGroups == null || (!_mixerGroups.ContainsKey(text) && _mixerFrame != Time.frameCount))
 			{
-				if ((bool)obj && obj.name == text)
+				_mixerFrame = Time.frameCount;
+				_mixerGroups = new Dictionary<string, UnityEngine.Object>();
+				UnityEngine.Object[] array = Resources.FindObjectsOfTypeAll(want);
+				foreach (UnityEngine.Object obj in array)
 				{
-					return obj;
+					if ((bool)obj && !_mixerGroups.ContainsKey(obj.name))
+					{
+						_mixerGroups[obj.name] = obj;
+					}
 				}
+			}
+			if (_mixerGroups.TryGetValue(text, out var group) && (bool)group)
+			{
+				return group;
 			}
 			Plugin.Log.LogDebug("[RigFill] mixer group '" + text + "' not found — sound keeps default routing");
 		}
 		return null;
 	}
+
+	private static Dictionary<string, UnityEngine.Object> _mixerGroups;
+
+	private static int _mixerFrame = -1;
 
 	internal static void StageDelayShims(JArray rows, string tag)
 	{
@@ -435,7 +533,7 @@ internal static class TerminalRigFill
 			return value;
 		}
 		string text3 = r.Value<string>("cls");
-		Type type = TypeFor(text3) ?? AccessTools.TypeByName("UnityEngine." + text3 + ", UnityEngine.CoreModule");
+		Type type = TypeFor(text3) ?? TerminalTypes.ByName("UnityEngine." + text3 + ", UnityEngine.CoreModule");
 		if (type == null && text3 == "Animator")
 		{
 			type = typeof(Animator);

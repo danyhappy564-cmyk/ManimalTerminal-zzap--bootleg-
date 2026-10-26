@@ -824,7 +824,7 @@ internal class TerminalSoundRig : MonoBehaviour
 		{
 			return value;
 		}
-		value = AccessTools.TypeByName(name);
+		value = TerminalTypes.ByName(name);
 		_types[name] = value;
 		return value;
 	}

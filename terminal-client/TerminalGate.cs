@@ -67,6 +67,7 @@ internal static class TerminalGate
 			CivilianMeleeEnforcer.ClearAll();
 			TerminalCrewJobs.Reset();
 			TerminalShaderRebind.ResetForRaid();
+			TerminalRigFill.ResetForRaid();
 			TerminalSpawnGate.ResetForRaid();
 			TerminalPopulationDirector.ResetForRaid();
 			TerminalStageDirector.ResetForRaid();

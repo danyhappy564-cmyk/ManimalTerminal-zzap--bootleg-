@@ -83,7 +83,7 @@ internal static class TerminalCraneFalling
 			}
 			try
 			{
-				TerminalShaderRebind.RebindNow();
+				TerminalShaderRebind.RebindNowUnder(transform);
 			}
 			catch (Exception ex)
 			{

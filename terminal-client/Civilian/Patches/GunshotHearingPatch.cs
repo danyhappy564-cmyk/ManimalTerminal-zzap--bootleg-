@@ -20,6 +20,12 @@ internal sealed class GunshotHearingPatch : ModulePatch
 	[PatchPostfix]
 	private static void PatchPostfix(Player.FirearmController __instance)
 	{
+		// zzap perf: civilians only exist on Terminal — skip the reflection read and the
+		// all-players loop for every shot fired on every other map
+		if (!TerminalGate.On)
+		{
+			return;
+		}
 		Player player = PlayerField?.GetValue(__instance) as Player;
 		if (player == null || !player.HealthController.IsAlive || CivilianConstants.IsCivilian(player.Profile.Info.Settings.Role))
 		{

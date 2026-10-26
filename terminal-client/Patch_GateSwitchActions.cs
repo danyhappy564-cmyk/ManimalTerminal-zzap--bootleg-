@@ -55,7 +55,9 @@ internal sealed class Patch_GateSwitchActions : ModulePatch
 	{
 		try
 		{
-			if (!Plugin.GatesExplosion.Value || interactiveSwitch == null || !Ours(interactiveSwitch))
+			// zzap perf: cached map flag first — off Terminal this runs every frame you look
+			// at any switch, and Ours() allocates the scene name string
+			if (!TerminalGate.On || !Plugin.GatesExplosion.Value || interactiveSwitch == null || !Ours(interactiveSwitch))
 			{
 				return;
 			}

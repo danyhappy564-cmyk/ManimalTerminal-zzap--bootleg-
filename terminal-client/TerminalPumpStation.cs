@@ -218,7 +218,7 @@ internal static class TerminalPumpStation
 		AbstractGame abstractGame = (Singleton<AbstractGame>.Instantiated ? Singleton<AbstractGame>.Instance : null);
 		if (abstractGame != null && abstractGame.GetType().Name.IndexOf("Coop", StringComparison.OrdinalIgnoreCase) >= 0)
 		{
-			Type type = AccessTools.TypeByName("FikaBackendUtils");
+			Type type = TerminalTypes.ByName("FikaBackendUtils");
 			string text = ((type == null) ? null : AccessTools.Property(type, "RaidCode")?.GetValue(null)?.ToString());
 			string text2 = ((type == null) ? null : AccessTools.Property(type, "ServerGuid")?.GetValue(null)?.ToString());
 			if (!string.IsNullOrEmpty(text) && !string.IsNullOrEmpty(text2))

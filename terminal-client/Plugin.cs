@@ -236,39 +236,46 @@ public class Plugin : BaseUnityPlugin
 
 	internal static ConfigEntry<float> CrossCullDistance;
 
+	private static readonly (string Name, Action Run)[] Stagers = new (string, Action)[9]
+	{
+		("GatesExpl", TerminalGatesExplosion.TryStage),
+		("Crane", TerminalCraneFalling.TryStage),
+		("FinalExit", TerminalFinalExit.TryStage),
+		("ArtyStg", TerminalArtillery.TryStage),
+		("PumpStg", TerminalPumpStation.TryStage),
+		("Water", TerminalWater.TryStage),
+		("DryPln", TerminalDryPlanes.TryStage),
+		("ShoreAud", TerminalShoreAudio.TryStage),
+		("RainAud", TerminalRainAudio.TryStage)
+	};
+
+	private static int _stagerCursor;
+
 	private void Update()
 	{
 		if (TerminalGate.On)
 		{
 			TerminalPerfWatch.OursBegin();
+			// zzap perf: the stagers all became ready in the same frame and ran back to
+			// back (7s of the 17.8s raid-start frame on 10/26). Each one retries every
+			// frame until it has staged, so once this frame has spent its budget the rest
+			// simply go next frame — round-robin so nobody starves.
+			long frameStart = Stopwatch.GetTimestamp();
+			long budget = Stopwatch.Frequency * 8 / 1000;
+			for (int k = 0; k < Stagers.Length; k++)
+			{
+				int idx = (_stagerCursor + k) % Stagers.Length;
+				long t0 = Stopwatch.GetTimestamp();
+				Stagers[idx].Run();
+				long now = Stopwatch.GetTimestamp();
+				TerminalTickProfiler.Add(Stagers[idx].Name, now - t0);
+				if (now - frameStart > budget)
+				{
+					_stagerCursor = (idx + 1) % Stagers.Length;
+					break;
+				}
+			}
 			long timestamp = Stopwatch.GetTimestamp();
-			TerminalGatesExplosion.TryStage();
-			TerminalTickProfiler.Add("GatesExpl", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalCraneFalling.TryStage();
-			TerminalTickProfiler.Add("Crane", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalFinalExit.TryStage();
-			TerminalTickProfiler.Add("FinalExit", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalArtillery.TryStage();
-			TerminalTickProfiler.Add("ArtyStg", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalPumpStation.TryStage();
-			TerminalTickProfiler.Add("PumpStg", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalWater.TryStage();
-			TerminalTickProfiler.Add("Water", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalDryPlanes.TryStage();
-			TerminalTickProfiler.Add("DryPln", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalShoreAudio.TryStage();
-			TerminalTickProfiler.Add("ShoreAud", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
-			TerminalRainAudio.TryStage();
-			TerminalTickProfiler.Add("RainAud", Stopwatch.GetTimestamp() - timestamp);
-			timestamp = Stopwatch.GetTimestamp();
 			TerminalWeather.TryEnsureRainVisualReady();
 			TerminalTickProfiler.Add("RainVis", Stopwatch.GetTimestamp() - timestamp);
 			TerminalMissionWeather.Pump();
@@ -315,7 +322,7 @@ public class Plugin : BaseUnityPlugin
 		LightCullDistance = Config.Bind("Terminal", "LightCullDistance", 20f, new ConfigDescription("meters at which lamp lights finish fading to zero (live, lowering only — raising needs a raid restart). tightens bsg's native 50-80m fade window; lower = more fps + darker distance, 80 = authored retail look", new AcceptableValueRange<float>(20f, 80f)));
 		GrassEnabled = Config.Bind("Terminal", "GrassEnabled", defaultValue: true, new ConfigDescription("restore Terminal's retail GPU-instanced grass (88,215 placements, 150m authored draw distance). takes effect next raid", null));
 		CamDonorSkip = Config.Bind("Terminal", "CamDonorSkip", "", new ConfigDescription("comma-separated component type names the donor graft must skip (bisecting a bad graft component)", null));
-		DevMode = Config.Bind("Terminal", "DevMode", defaultValue: false, new ConfigDescription("developer tooling: records the camera donor dump on vanilla raids. OFF for normal play", null));
+		DevMode = Config.Bind("Terminal", "DevMode", defaultValue: false, new ConfigDescription("developer tooling: records the camera donor dump on vanilla raids, and arms the all-camera render profiler, frame-timing capture and [PathPerf] bot path diagnostics (path diagnostics need a game restart). OFF for normal play", null));
 		LensFlares = Config.Bind("Terminal", "LensFlares", defaultValue: true, new ConfigDescription("rebuild the 3011 retail per-lamp lens flares (perf A/B lever)", null));
 		CutscenePlayerTop = Config.Bind("Terminal", "CutscenePlayerTop", defaultValue: true, new ConfigDescription("the intro cutscene's player actor wears YOUR pmc's equipped top instead of the generic packed torso (mesh + materials swapped onto the actor rig, bones remapped by name; aborts to the generic on any skeleton mismatch)", null));
 		AttackCutscene = Config.Bind("Terminal", "AttackCutscene", defaultValue: true, new ConfigDescription("play the timed PortCutscene_01_Attack mid-raid", null));
@@ -387,7 +394,7 @@ public class Plugin : BaseUnityPlugin
 		SceneCensus = Config.Bind("Terminal", "SceneCensus", defaultValue: false, new ConfigDescription("DIAGNOSTIC: scan all scene renderers, audio sources, particles, lights and cameras every 60 seconds. these whole-scene searches can cause a hitch on Terminal; leave off for normal play. lightweight frame timings and population heartbeats remain enabled", null));
 		TraceFrameCycle = Config.Bind("Terminal", "TraceFrameCycle", defaultValue: false, new ConfigDescription("log frame timings 4x/sec so the chop's actual WAVEFORM is visible — period, duty cycle, and which phase leads. every other perf number here is a 30s average, which cannot resolve a ~4-5s cycle at all. noisy: diagnostic raids only", null));
 		ProfilePlayerLoop = Config.Bind("Terminal", "ProfilePlayerLoop", defaultValue: false, new ConfigDescription("TEST-BUILD DIAGNOSTIC: instrument Unity's PostLateUpdate subsystems individually (UpdateAllRenderers / UpdateAllSkinnedMeshes / PlayerUpdateCanvases / particles / cloth) and report per-system ms in the perf heartbeat. useful in tester logs; disable after the performance test cycle", null));
-		BreachDoorProbe = Config.Bind("Terminal", "BreachDoorProbe", defaultValue: false, new ConfigDescription("log every door interaction's action list + full breach flag state when you look at a door — the why-is-BREACH-greyed-out switch", null));
+		BreachDoorProbe = Config.Bind("Terminal", "BreachDoorProbe", defaultValue: false, new ConfigDescription("log every door interaction's action list + full breach flag state when you look at a door — the why-is-BREACH-greyed-out switch (takes effect after a game restart)", null));
 		InteractProbeKey = Config.Bind("Terminal", "InteractProbeKey", new KeyboardShortcut(KeyCode.F9), new ConfigDescription("dump the full interaction state of every interactive object within 6m (the why-cant-i-open-this-door button)", null));
 		LightProbeKey = Config.Bind("Terminal", "LightProbeKey", new KeyboardShortcut(KeyCode.F10), new ConfigDescription("dump every lit light within 4m of the player to the log (the what-is-that-glow button)", null));
 		RuafNeutral = Config.Bind("Terminal", "RuafNeutral", defaultValue: true, new ConfigDescription("ruaf never add human enemies unless shot first — neutral until you draw blood", null));
@@ -431,8 +438,13 @@ public class Plugin : BaseUnityPlugin
 			Log.LogError($"sound rig attachment patch failed: {arg}");
 		}
 		Patch(typeof(TerminalAIBake.Patch_RestoreCoversData));
-		Patch(typeof(TerminalPathDiagnostics.Patch_CoverRoute));
-		Patch(typeof(TerminalPathDiagnostics.Patch_NavQuery));
+		// zzap perf: [PathPerf] diagnostics wrap BotPathFinderCorePoints.FindPath for every
+		// bot on every map — developer mode only (takes effect after a game restart)
+		if (DevMode.Value)
+		{
+			Patch(typeof(TerminalPathDiagnostics.Patch_CoverRoute));
+			Patch(typeof(TerminalPathDiagnostics.Patch_NavQuery));
+		}
 		try
 		{
 			new TerminalAIPlaces.Patch_BuildSpawnTriggers().Enable();
@@ -450,7 +462,13 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalBotFixes.Patch_GetSubPointEmptyGuard));
 		Patch(typeof(TerminalInteractables.Patch_HealInteractables));
 		Patch(typeof(TerminalBreachDoors.Patch_RollBreachableDoor));
-		Patch(typeof(Patch_BreachActionProbe));
+		// zzap perf: this probe postfixes every door-action builder and Harmony boxes an
+		// object[] of its args on every call (every frame you look at a door, every map)
+		// even while the probe is off — only install it when the probe is wanted.
+		if (BreachDoorProbe.Value)
+		{
+			Patch(typeof(Patch_BreachActionProbe));
+		}
 		try
 		{
 			new TerminalSpawnGate.Patch_ArmGate().Enable();
@@ -532,6 +550,7 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalEscortFix.Patch_EscortsHonourIgnoreMaxBots));
 		Patch(typeof(TerminalLights.Patch_LightsAtRaidStart));
 		Patch(typeof(TerminalLights.Patch_LampsDead));
+		Patch(typeof(TerminalLights.Patch_LampsDeadTick));
 		Patch(typeof(TerminalCameraDonor.Patch_DumpDonorCamera));
 		Patch(typeof(TerminalCameraDonor.Patch_GraftDonorCamera));
 		Patch(typeof(Patch_RejectShellCameraPrefab));

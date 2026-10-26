@@ -15,7 +15,7 @@ internal static class LateWaypointsPatch
 			return;
 		}
 		_done = true;
-		Type type = AccessTools.TypeByName("DrakiaXYZ.Waypoints.Patches.DoorLinkPatch");
+		Type type = TerminalTypes.ByName("DrakiaXYZ.Waypoints.Patches.DoorLinkPatch");
 		if (!(type == null))
 		{
 			MethodInfo methodInfo = AccessTools.Method(type, "PatchPostfix");

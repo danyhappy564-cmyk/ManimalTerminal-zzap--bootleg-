@@ -22,11 +22,13 @@ internal static class TerminalRuafNeutral
 				{
 					return true;
 				}
-				string text = __instance?._initialBot?.Profile?.Info?.Settings?.Role.ToString() ?? "";
-				if (text.IndexOf("ruaf", StringComparison.OrdinalIgnoreCase) < 0 && text.IndexOf("vsrf", StringComparison.OrdinalIgnoreCase) < 0)
+				// zzap perf: cached role test instead of Role.ToString() per AddEnemy
+				var settings = __instance?._initialBot?.Profile?.Info?.Settings;
+				if (settings == null || !TerminalRoles.IsRuaf(settings.Role))
 				{
 					return true;
 				}
+				string text = TerminalRoles.Name(settings.Role);
 				if (cause == EBotEnemyCause.followGetHit || cause == EBotEnemyCause.byKill || cause == EBotEnemyCause.death)
 				{
 					return true;

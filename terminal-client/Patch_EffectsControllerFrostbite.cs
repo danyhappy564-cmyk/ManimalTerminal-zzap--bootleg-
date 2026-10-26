@@ -25,7 +25,7 @@ internal static class Patch_EffectsControllerFrostbite
 	{
 		try
 		{
-			Type type = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessLayer");
+			Type type = TerminalTypes.ByName("UnityEngine.Rendering.PostProcessing.PostProcessLayer");
 			if (type == null)
 			{
 				return;
@@ -47,7 +47,7 @@ internal static class Patch_EffectsControllerFrostbite
 				Plugin.Log.LogDebug("[RaidFix] PostProcessLayer resources already present — no heal needed");
 				return;
 			}
-			Type type2 = AccessTools.TypeByName("UnityEngine.Rendering.PostProcessing.PostProcessResources");
+			Type type2 = TerminalTypes.ByName("UnityEngine.Rendering.PostProcessing.PostProcessResources");
 			UnityEngine.Object obj = null;
 			if (type2 != null)
 			{

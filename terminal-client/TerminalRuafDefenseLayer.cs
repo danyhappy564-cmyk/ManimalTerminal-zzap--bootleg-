@@ -24,8 +24,9 @@ internal class TerminalRuafDefenseLayer : CustomLayer
 			{
 				return false;
 			}
-			string text = BotOwner.Profile?.Info?.Settings?.Role.ToString() ?? "";
-			if (text.IndexOf("ruaf", StringComparison.OrdinalIgnoreCase) < 0 && text.IndexOf("vsrf", StringComparison.OrdinalIgnoreCase) < 0)
+			// zzap perf: per bot per brain tick — cached role test instead of Role.ToString()
+			var settings = BotOwner.Profile?.Info?.Settings;
+			if (settings == null || !TerminalRoles.IsRuaf(settings.Role))
 			{
 				return false;
 			}

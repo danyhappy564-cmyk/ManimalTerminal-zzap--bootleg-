@@ -23,7 +23,7 @@ internal static class TerminalExternalBotCleanup
 	{
 		try
 		{
-			Type type = AccessTools.TypeByName(typeName);
+			Type type = TerminalTypes.ByName(typeName);
 			return Clear(((type == null) ? null : AccessTools.Field(type, fieldName))?.GetValue(null));
 		}
 		catch (Exception ex)
@@ -37,7 +37,7 @@ internal static class TerminalExternalBotCleanup
 	{
 		try
 		{
-			Type type = AccessTools.TypeByName(typeName);
+			Type type = TerminalTypes.ByName(typeName);
 			if (type == null)
 			{
 				return 0;
