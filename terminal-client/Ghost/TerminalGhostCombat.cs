@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using EFT;
 using EFT.InventoryLogic;
 using UnityEngine;
@@ -11,8 +12,8 @@ namespace Manimal.Terminal;
 internal sealed class TerminalGhostCombat
 {
 	private const int MaxSquads = 256;
-	private const int MaxFights = 32;
-	private const int MaxMembers = 32; // per side; oversized squads remain asleep without simulation
+	internal const int MaxFights = 32;
+	internal const int MaxMembers = 32; // per side; oversized squads remain asleep without simulation
 	private const int PairsPerFrame = 4;
 	private const int EventsPerFrame = 8;
 
@@ -29,6 +30,7 @@ internal sealed class TerminalGhostCombat
 		internal WildSpawnType RoleA, RoleB;
 		internal readonly TerminalGhostDirector.BotRecord[] Members = new TerminalGhostDirector.BotRecord[MaxMembers * 2];
 		internal readonly CombatEvent[] Events = new CombatEvent[MaxMembers * 2];
+		internal readonly TerminalGhostAudio.State Audio = new TerminalGhostAudio.State();
 	}
 
 	internal struct CombatEvent
@@ -42,9 +44,12 @@ internal sealed class TerminalGhostCombat
 	private readonly int[] _occupied = new int[MaxSquads];
 	private readonly float[] _cooldowns = new float[MaxSquads * MaxSquads];
 	private readonly Fight[] _fights = new Fight[MaxFights];
+	private readonly TerminalGhostAudio _audio = new TerminalGhostAudio();
 	private int _count, _scanA, _scanB, _pairsLeft, _pumpCursor;
 	private float _nextSweep;
 	internal int ActiveCount { get; private set; }
+	internal int Shots => _audio.Shots;
+	internal void ResetShots() { _audio.ResetShots(); }
 
 	internal TerminalGhostCombat()
 	{
@@ -83,10 +88,11 @@ internal sealed class TerminalGhostCombat
 		// Fight until Pump returns from the death callback and records that casualty.
 	}
 
-	internal void Tick(float now)
+	internal void Tick(float now, List<Player> humans)
 	{
 		if (!Plugin.GhostCombat.Value) { CancelAll(); return; }
 		Pump(now);
+		_audio.Tick(now, _fights, humans);
 		if (TerminalGhostPolicy.Cutscene || _count < 2) return;
 		if (_pairsLeft == 0)
 		{
@@ -366,6 +372,7 @@ internal sealed class TerminalGhostCombat
 		bool changed;
 		if (evt.Death)
 		{
+			TerminalGhostAudio.StopShooter(fight, evt.Victim);
 			var enemy = evt.SideA ? fight.B : fight.A;
 			TerminalGhostDirector.BotRecord killer = null;
 			int count = 0;
@@ -399,6 +406,7 @@ internal sealed class TerminalGhostCombat
 
 	internal void CancelAll()
 	{
+		_audio.ReleaseSources(true);
 		for (int i = 0; i < _fights.Length; i++)
 			if (_fights[i].Active) End(_fights[i], Time.time, "cancelled");
 		_pairsLeft = 0;
@@ -408,6 +416,7 @@ internal sealed class TerminalGhostCombat
 	{
 		if (!fight.Active) return;
 		fight.Active = false; // detach BEFORE logging/waking or callbacks can re-enter
+		TerminalGhostAudio.Reset(fight); // no pending body or tail survives cancellation
 		fight.A.Fight = fight.B.Fight = null;
 		ActiveCount--;
 		Cooldown(fight.A, fight.B, now + 180f);

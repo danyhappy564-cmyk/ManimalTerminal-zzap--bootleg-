@@ -103,6 +103,9 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<bool> GhostDiagnostics;
 	internal static ConfigEntry<bool> GhostCombat;
 	internal static ConfigEntry<float> GhostCombatRange;
+	internal static ConfigEntry<bool> GhostAudio;
+	internal static ConfigEntry<float> GhostAudioRange;
+	internal static ConfigEntry<int> GhostAudioMaxFights;
 
 	internal static ConfigEntry<int> MaxAliveScavs;
 
@@ -325,6 +328,9 @@ public class Plugin : BaseUnityPlugin
 		GhostDiagnostics = Config.Bind("Terminal", "GhostDiagnostics", true, "Log completed/cancelled Ghost fights and dormant/total bots, sleeps/wakes, active fights and average/max milliseconds every 30 seconds.");
 		GhostCombat = Config.Bind("Terminal", "GhostCombat", true, "Simulate fights between hostile Ghost-owned dormant squads. Requires GhostMode; OFF cancels remaining simulated damage immediately on the next Ghost update.");
 		GhostCombatRange = Config.Bind("Terminal", "GhostCombatRange", 60f, new ConfigDescription("Maximum simulated contact distance in meters (nearest living member pair; three clear world rays required).", new AcceptableValueRange<float>(10f, 150f)));
+		GhostAudio = Config.Bind("Terminal", "GhostAudio", true, "Play equipped weapon sounds for simulated fights only while GhostMode and GhostCombat are ON. Sound only; no AI hearing events. OFF discards pending sounds on the next Ghost update.");
+		GhostAudioRange = Config.Bind("Terminal", "GhostAudioRange", 700f, new ConfigDescription("Maximum distance from a living human to Ghost gunfire (meters). Outside this range sounds are skipped, with no catch-up.", new AcceptableValueRange<float>(1f, 1500f)));
+		GhostAudioMaxFights = Config.Bind("Terminal", "GhostAudioMaxFights", 2, new ConfigDescription("Maximum audible Ghost fights, nearest first. Independent of retail ambience's 12 sequence slots; all Ghost bodies/tails share four source starts per frame.", new AcceptableValueRange<int>(1, TerminalGhostCombat.MaxFights)));
 		TerminalGhostPatches.Initialize();
 		TerminalAILimitFirewall.Install(HarmonyInstance);
 		TerminalSainCompat.Install(HarmonyInstance);

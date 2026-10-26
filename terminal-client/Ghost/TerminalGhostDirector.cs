@@ -217,7 +217,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 					Evaluate(_groups[_cursor++]);
 				}
 			}
-			_combat.Tick(Time.time);
+			_combat.Tick(Time.time, _humans);
 		}
 		catch (Exception ex)
 		{
@@ -355,9 +355,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				total++;
 				if (record.Dormant) dormant++;
 			}
-			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms");
+			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms");
 		}
 		_sleeps = _wakes = _samples = 0;
+		_combat.ResetShots();
 		_sumMs = _maxMs = 0;
 	}
 
