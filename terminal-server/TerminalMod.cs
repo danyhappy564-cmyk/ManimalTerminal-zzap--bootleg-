@@ -358,26 +358,11 @@ public class TerminalMod(
             // already sets this correctly; its missing slot filters were the bug.
             letter.Properties.IsSpecialSlotOnly = true;
 
-            var patchedSlots = 0;
-            foreach (var pocketsId in new[]
-                     {
-                         "627a4e6b255f7527fb05a0f6", // standard pockets
-                         "65e080be269cbd5c5005e529", // Unheard Edition pockets
-                     })
-            {
-                if (!items.TryGetValue(new MongoId(pocketsId), out var pockets)
-                    || pockets.Properties?.Slots is null)
-                    continue;
+            // every Pockets-class template, not just the stock two — custom pockets
+            // (SVM CustomPocket etc.) are separate templates (TerminalEntryNotePockets)
+            var (pockets, patchedSlots) = TerminalEntryNotePockets.Allow(items);
 
-                foreach (var slot in pockets.Properties.Slots)
-                {
-                    var filter = slot.Properties?.Filters?.FirstOrDefault()?.Filter;
-                    if (filter is not null && filter.Add(TerminalEntryNoteTpl))
-                        patchedSlots++;
-                }
-            }
-
-            logger.Info($"[Terminal] Prapor checkpoint letter enabled for Special Slots ({patchedSlots} filter(s) updated)");
+            logger.Info($"[Terminal] Prapor checkpoint letter enabled for Special Slots ({patchedSlots} filter(s) updated across {pockets} pockets template(s))");
         }
         catch (Exception e)
         {
