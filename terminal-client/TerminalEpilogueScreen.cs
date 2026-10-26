@@ -204,7 +204,8 @@ internal static class TerminalEpilogueScreen
 		{
 			try
 			{
-				string text = Path.Combine(AssetsDir(), "terminal_epilogue.json");
+				// zzap: terminal_epilogue.kr.json when playing in Korean (same layout, translated text)
+				string text = TerminalLang.LocalizedDataPath(Path.Combine(AssetsDir(), "terminal_epilogue.json"));
 				if (!File.Exists(text))
 				{
 					Plugin.Log.LogWarning("[Epilogue] no config at " + text);
@@ -1019,20 +1020,20 @@ internal static class TerminalEpilogueScreen
 			ProfileData.Stats stats = ProfileData.ReadStats(_profile);
 			(string, string)[] array = new (string, string)[14]
 			{
-				("Character Level", stats.Level.ToString()),
-				("Favorite Weapon", stats.FavoriteWeapon),
-				("Prestige Level", stats.PrestigeLevel.ToString()),
-				("K/D", stats.Kd),
-				("Total Played Time", stats.PlayedTime),
-				("Game Style", stats.GameStyle),
-				("Game Edition", stats.GameEdition),
-				("PMC Eliminated", stats.PmcKills.ToString()),
-				("Game Mode", stats.GameMode),
-				("Scavs Eliminated", stats.ScavKills.ToString()),
-				("Total Raid Count", stats.TotalRaids.ToString()),
-				("Bosses Neutralized", stats.BossKills.ToString()),
-				("Longest Win Streak", stats.WinStreak.ToString()),
-				("Survival Rate", stats.SurvivalRate)
+				(TerminalLang.T("Character Level"), stats.Level.ToString()),
+				(TerminalLang.T("Favorite Weapon"), stats.FavoriteWeapon),
+				(TerminalLang.T("Prestige Level"), stats.PrestigeLevel.ToString()),
+				(TerminalLang.T("K/D"), stats.Kd),
+				(TerminalLang.T("Total Played Time"), stats.PlayedTime),
+				(TerminalLang.T("Game Style"), stats.GameStyle),
+				(TerminalLang.T("Game Edition"), stats.GameEdition),
+				(TerminalLang.T("PMC Eliminated"), stats.PmcKills.ToString()),
+				(TerminalLang.T("Game Mode"), stats.GameMode),
+				(TerminalLang.T("Scavs Eliminated"), stats.ScavKills.ToString()),
+				(TerminalLang.T("Total Raid Count"), stats.TotalRaids.ToString()),
+				(TerminalLang.T("Bosses Neutralized"), stats.BossKills.ToString()),
+				(TerminalLang.T("Longest Win Streak"), stats.WinStreak.ToString()),
+				(TerminalLang.T("Survival Rate"), stats.SurvivalRate)
 			};
 			GameObject gameObject = new GameObject("StatsPanel");
 			gameObject.transform.SetParent(_rightRoot, worldPositionStays: false);
@@ -1494,7 +1495,7 @@ internal static class TerminalEpilogueScreen
 				if ((UnityEngine.Object)(object)sessionResultKillList == null)
 				{
 					Plugin.Log.LogWarning("[Epilogue] SessionResultKillList not available");
-					MakeText(gameObject.transform, "Empty", "kill list unavailable", 18, TextAnchor.MiddleCenter).color = new Color(0.7f, 0.7f, 0.65f, 1f);
+					MakeText(gameObject.transform, "Empty", TerminalLang.T("kill list unavailable"), 18, TextAnchor.MiddleCenter).color = new Color(0.7f, 0.7f, 0.65f, 1f);
 					return;
 				}
 				object obj = AccessTools.Property(_profile.GetType(), "EftStats")?.GetValue(_profile) ?? AccessTools.Field(_profile.GetType(), "EftStats")?.GetValue(_profile);
@@ -1534,7 +1535,7 @@ internal static class TerminalEpilogueScreen
 					Plugin.Log.LogWarning("[Epilogue] KillList _container not reachable — killfeed slide will be empty");
 				}
 				gameObject2.SetActive(value: false);
-				Text text = MakeText(gameObject.transform, "Head", "RAID KILL LIST", 20, TextAnchor.MiddleCenter);
+				Text text = MakeText(gameObject.transform, "Head", TerminalLang.T("RAID KILL LIST"), 20, TextAnchor.MiddleCenter);
 				text.color = new Color(0.9f, 0.9f, 0.85f, 1f);
 				text.raycastTarget = false;
 				text.fontStyle = FontStyle.Bold;
@@ -1584,7 +1585,9 @@ internal static class TerminalEpilogueScreen
 			gameObject.transform.SetParent(parent, worldPositionStays: false);
 			Text text = gameObject.AddComponent<Text>();
 			text.text = content;
-			text.font = ((_benderRegular != null) ? _benderRegular : Resources.GetBuiltinResource<Font>("Arial.ttf"));
+			// zzap: Bender/Arial have no Hangul — the whole epilogue uses the OS Korean font in Korean
+			Font baseFont = (_benderRegular != null) ? _benderRegular : Resources.GetBuiltinResource<Font>("Arial.ttf");
+			text.font = ((TerminalLang.IsKorean && TerminalLang.KoreanFont != null) ? TerminalLang.KoreanFont : baseFont);
 			text.fontSize = size;
 			text.alignment = align;
 			text.horizontalOverflow = HorizontalWrapMode.Wrap;

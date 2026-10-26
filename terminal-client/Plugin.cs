@@ -228,6 +228,8 @@ public class Plugin : BaseUnityPlugin
 
 	internal static ConfigEntry<bool> CutsceneSubtitles;
 
+	internal static ConfigEntry<string> Language;
+
 	internal static ConfigEntry<bool> AmbientSplines;
 
 	internal static ConfigEntry<bool> SoundRigFirefight;
@@ -337,6 +339,7 @@ public class Plugin : BaseUnityPlugin
 		AmbientSplines = Config.Bind("Terminal", "AmbientSplines", defaultValue: false, new ConfigDescription("run the optional ambient spline emitter stack (wind/rain/moving-metal effects). Terminal's lightweight shoreline proximity emitters remain enabled so the sea is audible near the water", null));
 		SoundRigFirefight = Config.Bind("Terminal", "SoundRigFirefight", defaultValue: true, new ConfigDescription("distant firefight ambience bursts. turn OFF for one raid as the other half of the frame-chop A/B", null));
 		CutsceneSubtitles = Config.Bind("Terminal", "CutsceneSubtitles", defaultValue: true, new ConfigDescription("show timed subtitles during the cutscenes (live-locale text, speech-segmented timings — edit plugin-data/terminal_subtitle_timings.json to tune)", null));
+		Language = Config.Bind("Terminal", "Language", "Auto", new ConfigDescription("language of Terminal's own subtitles, notifications, prompts and epilogue. Auto = follow the game's language (Korean text from plugin-data/lang/kr.json) / 터미널 자막·알림·안내·엔딩 화면 언어. Auto = 게임 언어를 따름", new AcceptableValueList<string>("Auto", "Korean", "English")));
 		WaterPlanes = Config.Bind("Terminal", "WaterPlanes", defaultValue: true, new ConfigDescription("draw the harbor/pump water planes. turn OFF for one raid as the A/B test for the port-area fps tanking — if the port runs smooth without water, the water shader is the culprit", null));
 		GatesExplosion = Config.Bind("Terminal", "GatesExplosion", defaultValue: true, new ConfigDescription("restore the authored Gates_explosion mechanic: solo open needs ELITE strength (51), or plant an SZ-1 charge (either tpl) on the bomb switch — 5s plant, 10s fuse, real blast opens the gate", null));
 		CraneFalling = Config.Bind("Terminal", "CraneFalling", defaultValue: true, new ConfigDescription("restore the authored falling-crane trap: walking under the crane triggers the collapse — crash animation, dust/fire VFX, contusion, 1000dmg kill zones under the fall path", null));

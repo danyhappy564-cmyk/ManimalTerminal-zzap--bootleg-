@@ -87,7 +87,7 @@ internal sealed class Patch_GateSwitchActions : ModulePatch
 				Switch sw = interactiveSwitch;
 				Replace(ref __result, new InteractionAction
 				{
-					Name = "Plant",
+					Name = TerminalLang.T("Plant"),
 					Disabled = !flag,
 					Action = () =>
 					{
@@ -174,7 +174,7 @@ internal sealed class Patch_GateSwitchActions : ModulePatch
 				Switch sw2 = interactiveSwitch;
 				Replace(ref __result, new InteractionAction
 				{
-					Name = (elite ? "Open" : (coop ? "Open with teammate" : "Open (requires Elite Strength)")),
+					Name = TerminalLang.T(elite ? "Open" : (coop ? "Open with teammate" : "Open (requires Elite Strength)")),
 					Disabled = (!elite && !coop),
 					Action = () =>
 					{

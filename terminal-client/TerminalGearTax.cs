@@ -482,7 +482,7 @@ internal static class TerminalGearTax
 				}
 				try
 				{
-					NotificationManager.DisplayMessageNotification("Port security has confiscated your equipment. It is locked in one of the terminal's equipment cabinets.", ENotificationDurationType.Long, ENotificationIconType.Alert, Color.yellow);
+					NotificationManager.DisplayMessageNotification(TerminalLang.T("Port security has confiscated your equipment. It is locked in one of the terminal's equipment cabinets."), ENotificationDurationType.Long, ENotificationIconType.Alert, Color.yellow);
 				}
 				catch
 				{

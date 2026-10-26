@@ -77,7 +77,7 @@ internal static class Patch_PumpSwitchActions
 				Switch sw = interactiveSwitch;
 				Replace(ref __result, new InteractionAction
 				{
-					Name = (hasTool ? "Repair" : "Repair without tools (risky)"),
+					Name = TerminalLang.T(hasTool ? "Repair" : "Repair without tools (risky)"),
 					Disabled = false,
 					Action = () =>
 					{
@@ -139,7 +139,7 @@ internal static class Patch_PumpSwitchActions
 				}
 				Replace(ref __result, new InteractionAction
 				{
-					Name = "Drain the reservoir",
+					Name = TerminalLang.T("Drain the reservoir"),
 					Disabled = false,
 					Action = () =>
 					{
@@ -157,11 +157,11 @@ internal static class Patch_PumpSwitchActions
 			case "Interactive_Button_off":
 				Replace(ref __result, new InteractionAction
 				{
-					Name = "Inspect panel",
+					Name = TerminalLang.T("Inspect panel"),
 					Disabled = false,
 					Action = () =>
 					{
-						NotificationManager.DisplayMessageNotification("The panel has no power — repair the broken electrical cabinet first", ENotificationDurationType.Default, ENotificationIconType.Default, Color.white);
+						NotificationManager.DisplayMessageNotification(TerminalLang.T("The panel has no power — repair the broken electrical cabinet first"), ENotificationDurationType.Default, ENotificationIconType.Default, Color.white);
 					}
 				});
 				break;

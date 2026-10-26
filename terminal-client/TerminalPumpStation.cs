@@ -349,13 +349,13 @@ internal static class TerminalPumpStation
 			PowerFixed = true;
 			TerminalGatesExplosion.Emit("on_electric_boxes_fixed");
 			TerminalGatesExplosion.PlayAt(TerminalFxBundle.FindClip("amb_terminal_interactive_generator_start_electricity"), cab.Root.position, 30f);
-			NotificationManager.DisplayMessageNotification("Power restored — the pump station panel is live", ENotificationDurationType.Long, ENotificationIconType.Default, Color.green);
+			NotificationManager.DisplayMessageNotification(TerminalLang.T("Power restored — the pump station panel is live"), ENotificationDurationType.Long, ENotificationIconType.Default, Color.green);
 		}
 	}
 
 	internal static void OnUnsafeRepairFailed(CabinetInfo cab)
 	{
 		TerminalGatesExplosion.Emit("repair_unsafe_failed_electicity_terminal_" + cab.Suffix);
-		NotificationManager.DisplayMessageNotification("Repair failed — the cabinet shocked you", ENotificationDurationType.Default, ENotificationIconType.Alert, Color.red);
+		NotificationManager.DisplayMessageNotification(TerminalLang.T("Repair failed — the cabinet shocked you"), ENotificationDurationType.Default, ENotificationIconType.Alert, Color.red);
 	}
 }

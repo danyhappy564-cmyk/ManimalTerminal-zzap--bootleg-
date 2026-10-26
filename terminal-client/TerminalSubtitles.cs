@@ -107,7 +107,7 @@ internal static class TerminalSubtitles
 				_host.Director = director;
 				foreach (JToken item in jArray)
 				{
-					string text = item.Value<string>("text");
+					string text = TerminalLang.T(item.Value<string>("text"));
 					if (!string.IsNullOrEmpty(text))
 					{
 						float num = item.Value<float>("start");
@@ -155,7 +155,7 @@ internal static class TerminalSubtitles
 			if (Plugin.CutsceneSubtitles.Value && !string.IsNullOrEmpty(text) && !(duration <= 0f))
 			{
 				StandaloneHost standaloneHost = new GameObject("Terminal_Subtitle_OneShot").AddComponent<StandaloneHost>();
-				standaloneHost.Text = text;
+				standaloneHost.Text = TerminalLang.T(text);
 				standaloneHost.EndAt = Time.unscaledTime + duration;
 			}
 		}
@@ -216,6 +216,8 @@ internal static class TerminalSubtitles
 				_sharedBg.Apply();
 				_sharedBg.hideFlags = HideFlags.HideAndDontSave;
 			}
+			// zzap: Bender has no Hangul — Korean lines draw with the OS Korean font
+			_sharedText.font = TerminalLang.FontFor(txt, _benderRegular ?? GUI.skin.font);
 			float num = (float)Screen.width * 0.45f;
 			GUIContent content = new GUIContent(txt.Replace("<b>", "").Replace("</b>", ""));
 			float height = _sharedText.CalcHeight(content, num - (float)_sharedText.padding.horizontal);
