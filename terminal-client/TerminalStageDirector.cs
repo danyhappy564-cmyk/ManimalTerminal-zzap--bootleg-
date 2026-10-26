@@ -90,6 +90,14 @@ internal static class TerminalStageDirector
 			return TerminalStagePolicy.ShouldHold(_currentStage, authoredBlockStage, cutscene);
 		}
 
+		// zzap: Ghost checks this each frame; use the birth/migration-cached zone
+		// name rather than allocating UnityEngine.Object.name strings every time.
+		internal bool GhostShouldHold(string zoneName, bool cutscene)
+		{
+			int stage = zoneName != null && _blockedZones.TryGetValue(zoneName, out var value) ? value : 0;
+			return TerminalStagePolicy.ShouldHold(_currentStage, stage, cutscene);
+		}
+
 		internal void BeginListening(BotZone[] botZones)
 		{
 			//IL_0138: Unknown result type (might be due to invalid IL or missing references)
@@ -338,6 +346,12 @@ internal static class TerminalStageDirector
 			return _host.ShouldHold(bot, TerminalIntroCutscene.PlayingNow || TerminalAttackCutscene.PlayingNow || TerminalEndingCutscene.PlayingNow);
 		}
 		return false;
+	}
+
+	internal static bool GhostShouldHold(string zoneName)
+	{
+		return TerminalGate.On && Plugin.StageDirector.Value && _host
+			&& _host.GhostShouldHold(zoneName, TerminalGhostPolicy.Cutscene);
 	}
 
 	internal static void ResetForRaid()

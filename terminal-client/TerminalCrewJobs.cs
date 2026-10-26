@@ -75,6 +75,9 @@ internal static class TerminalCrewJobs
 
 	private static readonly Dictionary<string, PendingForceAttack> PendingForceAttacks = new Dictionary<string, PendingForceAttack>();
 
+	// zzap: Ghost reads pending native orders without advancing the job allocator.
+	internal static bool GhostHasPendingOrder(string profileId) => profileId != null && PendingForceAttacks.ContainsKey(profileId);
+
 	private static GameObject _forceAttackHost;
 
 	private const float ForceAttackTimeout = 20f;

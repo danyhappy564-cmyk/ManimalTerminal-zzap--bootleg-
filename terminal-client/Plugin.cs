@@ -22,6 +22,7 @@ namespace Manimal.Terminal;
 [BepInDependency("com.morebotsapi.tacticaltoaster", BepInDependency.DependencyFlags.HardDependency)]
 [BepInDependency("com.blackdiv.tacticaltoaster", BepInDependency.DependencyFlags.HardDependency)]
 [BepInDependency("com.manimal.motionmagic", BepInDependency.DependencyFlags.SoftDependency)]
+[BepInDependency("me.sol.sain", BepInDependency.DependencyFlags.SoftDependency)]
 public class Plugin : BaseUnityPlugin
 {
 	internal static ManualLogSource Log;
@@ -93,6 +94,13 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<bool> RuafDefense;
 
 	internal static ConfigEntry<bool> StageDirector;
+
+	// zzap: terminal-only squad dormancy, opt-in until raid validation.
+	internal static ConfigEntry<bool> GhostMode;
+	internal static ConfigEntry<float> GhostSleepDistance;
+	internal static ConfigEntry<float> GhostWakeDistance;
+	internal static ConfigEntry<bool> GhostBrainThrottle;
+	internal static ConfigEntry<bool> GhostDiagnostics;
 
 	internal static ConfigEntry<int> MaxAliveScavs;
 
@@ -308,6 +316,12 @@ public class Plugin : BaseUnityPlugin
 	{
 		Log = Logger;
 		HarmonyInstance = new Harmony("com.manimal.terminal");
+		GhostMode = Config.Bind("Terminal", "GhostMode", false, "Pause distant ordinary squads (Terminal only; disabled with any Fika assembly). Experimental, stage 1.");
+		GhostSleepDistance = Config.Bind("Terminal", "GhostSleepDistance", 250f, new ConfigDescription("All living squad members must be farther than this from every living human (meters).", new AcceptableValueRange<float>(50f, 1500f)));
+		GhostWakeDistance = Config.Bind("Terminal", "GhostWakeDistance", 200f, new ConfigDescription("Immediate squad wake distance (meters); clamped below sleep distance at runtime.", new AcceptableValueRange<float>(10f, 1499f)));
+		GhostBrainThrottle = Config.Bind("Terminal", "GhostBrainThrottle", true, "Stage 1 uses a full brain stop while dormant. OFF wakes Ghost-owned bots and suspends new sleeps for safety.");
+		GhostDiagnostics = Config.Bind("Terminal", "GhostDiagnostics", true, "Log dormant/total bots, squad sleeps/wakes and Ghost average/max milliseconds every 30 seconds.");
+		TerminalGhostPatches.Initialize();
 		TerminalAILimitFirewall.Install(HarmonyInstance);
 		TerminalSainCompat.Install(HarmonyInstance);
 		TerminalCrashGuard.TryPatch(HarmonyInstance);
@@ -503,6 +517,24 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalSpawnGate.Patch_BypassNativeCapForAdmittedScavs));
 		Patch(typeof(TerminalSpawnGate.Patch_FinalLifetimeCap));
 		Patch(typeof(TerminalPopulationDirector.Patch_Attach));
+		Patch(typeof(TerminalGhostPatches.Patch_Attach));
+		Patch(typeof(TerminalGhostPatches.Patch_NewRaid));
+		Patch(typeof(TerminalGhostPatches.Patch_EndRaid));
+		Patch(typeof(TerminalGhostPatches.Patch_Agent));
+		Patch(typeof(TerminalGhostPatches.Patch_BigBrain));
+		Patch(typeof(TerminalGhostPatches.Patch_Look));
+		Patch(typeof(TerminalGhostPatches.Patch_Visible));
+		Patch(typeof(TerminalGhostPatches.Patch_Goal));
+		Patch(typeof(TerminalGhostPatches.Patch_Damage));
+		Patch(typeof(TerminalGhostPatches.Patch_Death));
+		Patch(typeof(TerminalGhostPatches.Patch_Shoot));
+		Patch(typeof(TerminalGhostPatches.Patch_Move));
+		Patch(typeof(TerminalGhostPatches.Patch_SainGoal));
+		Patch(typeof(TerminalGhostPatches.Patch_SainActivation));
+		Patch(typeof(TerminalGhostPatches.Patch_Stop));
+		Patch(typeof(TerminalGhostPatches.Patch_WeaponParent));
+		Patch(typeof(TerminalGhostPatches.Patch_WeaponPool));
+		TerminalGhostPatches.CheckInstalled();
 		Patch(typeof(TerminalPopulationDirector.Patch_DropDestroyedBotTasks));
 		Patch(typeof(TerminalPopulationDirector.Patch_DropDestroyedBleedingPlayers));
 		Patch(typeof(TerminalPopulationDirector.Patch_AuditCorpseIdentity));

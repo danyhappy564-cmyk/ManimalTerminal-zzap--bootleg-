@@ -103,6 +103,8 @@ internal static class TerminalStageWait
 
 		public override AICoreActionResult<BotLogicDecision, CoreActionResultParams> GetDecision()
 		{
+			// zzap: restore Ghost's flags BEFORE Wait snapshots its own visibility.
+			TerminalGhostDirector.WakeNow(_owner);
 			_entered = true;
 			ApplyWait();
 			return new AICoreActionResult<BotLogicDecision, CoreActionResultParams>((BotLogicDecision)7000, "wait");

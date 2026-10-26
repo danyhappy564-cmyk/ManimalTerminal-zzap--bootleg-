@@ -124,6 +124,9 @@ internal static class TerminalBotMigration
 
 	private static readonly HashSet<BotOwner> InFlight = new HashSet<BotOwner>();
 
+	// zzap: Ghost reads the existing migration owner, no duplicate state machine.
+	internal static bool IsInFlight(BotOwner bot) => InFlight.Contains(bot);
+
 	private static int _raidGeneration;
 
 	internal static event Action<BotOwner> OnMigrated;
@@ -160,6 +163,7 @@ internal static class TerminalBotMigration
 			reason = "unavailable";
 			return false;
 		}
+		TerminalGhostDirector.WakeNow(bot);
 		if (!InFlight.Add(bot))
 		{
 			reason = "migration-in-flight";
@@ -188,6 +192,7 @@ internal static class TerminalBotMigration
 			try
 			{
 				Execute(context);
+				TerminalGhostDirector.GroupChanged(bot);
 				reason = "migrated";
 				if (CanInvokeMigrationCallback(context))
 				{

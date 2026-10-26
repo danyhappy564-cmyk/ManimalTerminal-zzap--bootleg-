@@ -112,6 +112,7 @@ internal static class TerminalLights
 				new GameObject("Terminal_Lights").AddComponent<Host>();
 				// zzap: same raid-start moment — the civilian teleport diagnostic
 				Civilian.CivilianJumpProbe.EnsureForRaid();
+				TerminalGhostDirector.EnsureForRaid();
 			}
 		}
 	}

@@ -575,6 +575,13 @@ internal static class TerminalPopulationDirector
 
 	private static readonly Dictionary<string, Entry> Entries = new Dictionary<string, Entry>();
 
+	// zzap: Ghost must not capture the recycler's in-progress visibility repair.
+	internal static bool GhostPlacementBusy(BotOwner bot)
+	{
+		return bot != null && bot.ProfileId != null && Entries.TryGetValue(bot.ProfileId, out var entry)
+			&& (entry.VisualRepairUntil >= Time.time || (entry.LastRecycledAt >= 0f && Time.time - entry.LastRecycledAt < 15f));
+	}
+
 	private static GameObject _host;
 
 	private static int _highestProgressTier = -1;
@@ -1366,6 +1373,7 @@ internal static class TerminalPopulationDirector
 			try
 			{
 				BotOwner bot = entry.Bot;
+				TerminalGhostDirector.WakeNow(bot);
 				if (!entry.Player.gameObject.activeSelf)
 				{
 					entry.Player.gameObject.SetActive(value: true);
@@ -1377,6 +1385,7 @@ internal static class TerminalPopulationDirector
 				bot.Mover.Teleport(vector);
 				bot.Transform.position = vector;
 				bot.SpawnBotZone = targetZone;
+				TerminalGhostDirector.PlacementChanged(bot);
 				bot.LookSensor?.UpdateZoneValue(targetZone);
 				BeginBodyVisibilityRepair(entry);
 				RepairRecycledBodyVisibility(entry, out var renderers, out var forcedBackOn);
