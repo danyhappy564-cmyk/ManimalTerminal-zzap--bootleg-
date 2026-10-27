@@ -107,6 +107,7 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<bool> GhostAudio;
 	internal static ConfigEntry<float> GhostAudioRange;
 	internal static ConfigEntry<int> GhostAudioMaxFights;
+	internal static ConfigEntry<bool> GhostRuaf;
 
 	internal static ConfigEntry<int> MaxAliveScavs;
 
@@ -333,6 +334,7 @@ public class Plugin : BaseUnityPlugin
 		GhostAudio = Config.Bind("Terminal", "GhostAudio", true, "Play equipped weapon sounds for simulated fights only while GhostMode and GhostCombat are ON. Sound only; no AI hearing events. OFF discards pending sounds on the next Ghost update.");
 		GhostAudioRange = Config.Bind("Terminal", "GhostAudioRange", 700f, new ConfigDescription("Maximum distance from a living human to Ghost gunfire (meters). Outside this range sounds are skipped, with no catch-up.", new AcceptableValueRange<float>(1f, 1500f)));
 		GhostAudioMaxFights = Config.Bind("Terminal", "GhostAudioMaxFights", 2, new ConfigDescription("Maximum audible Ghost fights, nearest first. Independent of retail ambience's 12 sequence slots; all Ghost bodies/tails share four source starts per frame.", new AcceptableValueRange<int>(1, TerminalGhostCombat.MaxFights)));
+		GhostRuaf = Config.Bind("Terminal", "GhostRuaf", true, "Let distant RUAF squads sleep too (they are most of Terminal's far population). OFF keeps RUAF always awake; already sleeping RUAF wake on the next Ghost scan.");
 		TerminalGhostPatches.Initialize();
 		TerminalGhostSain.Initialize();
 		TerminalAILimitFirewall.Install(HarmonyInstance);

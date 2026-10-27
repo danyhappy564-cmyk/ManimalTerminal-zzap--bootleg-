@@ -45,7 +45,10 @@ internal static class TerminalGhostPolicy
 		var settings = bot.Profile?.Info?.Settings;
 		if (settings == null) return BlockReason.Invalid;
 		if (CivilianConstants.IsCivilian(settings.Role)) return BlockReason.Civilian;
-		if (TerminalRoles.IsRuaf(settings.Role)) return BlockReason.Ruaf;
+		// zzap: Terminal's distant population is mostly static RUAF posts (10/28 log:
+		// 5 of 7 awake squads). Their defense layer only runs with a goal enemy, which
+		// dormancy clears; neutrality/provocation live on the BotsGroup and survive sleep.
+		if (TerminalRoles.IsRuaf(settings.Role) && !Plugin.GhostRuaf.Value) return BlockReason.Ruaf;
 		if (IsBossRole(settings.Role)) return BlockReason.Boss;
 		if (TerminalCrewJobs.GhostHasPendingOrder(bot.ProfileId) || bot.PriorityAxeTarget?.AllPursuit == true) return BlockReason.Crew;
 		if (TerminalCrewJobs.ByProfile.TryGetValue(bot.ProfileId, out var job) && job != null
