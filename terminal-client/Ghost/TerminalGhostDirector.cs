@@ -77,11 +77,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	internal static void EnsureForRaid()
 	{
 		if (_instance || !TerminalGate.On || TerminalGhostPatches.FikaPresent || !TerminalGhostPatches.CoreReady) return;
-		_instance = new GameObject("Terminal_GhostDirector").AddComponent<TerminalGhostDirector>();
-		_instance._nextReport = Time.unscaledTime + 30f;
 		if (_spawner == null)
 			_spawner = (Singleton<IBotGame>.Instantiated ? Singleton<IBotGame>.Instance : null)?.BotsController?.BotSpawner;
 		if (_spawner == null) return;
+		_instance = new GameObject("Terminal_GhostDirector").AddComponent<TerminalGhostDirector>();
+		_instance._nextReport = Time.unscaledTime + 30f;
 		_spawner.OnBotCreated += _instance.Register;
 		_spawner.OnBotRemoved += _instance.Remove;
 		_instance._listening = true;
@@ -577,30 +577,54 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 
 	internal static void ResetForRaid()
 	{
-		if (_instance)
+		TerminalGhostDirector director = _instance;
+		try
 		{
-			_instance.RestoreAll();
-			_instance.Unlisten();
-			Destroy(_instance.gameObject);
-			_instance = null;
+			if (ReferenceEquals(director, null)) return;
+			try { if (director) director.RestoreAll(); }
+			catch (Exception ex) { Plugin.Log.LogWarning("[Ghost] raid-end restore skipped: " + ex.Message); }
+			finally
+			{
+				director.Unlisten();
+				director._bots.Clear();
+				director._agents.Clear();
+				director._byGroup.Clear();
+				director._groups.Clear();
+				director._humans.Clear();
+				director._wakeQueue.Clear();
+				director._retired.Clear();
+				_instance = null;
+				if (director) TerminalRaidCleanup.DestroyOwned(director.gameObject);
+			}
 		}
-		_spawner = null;
-		TerminalGhostSain.ResetForRaid();
+		finally
+		{
+			_spawner = null;
+			TerminalGhostSain.ResetForRaid();
+		}
 	}
 
 	private void Unlisten()
 	{
 		if (!_listening || _spawner == null) return;
-		_spawner.OnBotCreated -= Register;
-		_spawner.OnBotRemoved -= Remove;
+		try { _spawner.OnBotCreated -= Register; } catch (Exception) { }
+		try { _spawner.OnBotRemoved -= Remove; } catch (Exception) { }
 		_listening = false;
 	}
 
-	private void OnDisable() { RestoreAll(); }
+	private void OnDisable()
+	{
+		try { RestoreAll(); }
+		catch (Exception ex) { Plugin.Log.LogWarning("[Ghost] disable restore skipped: " + ex.Message); }
+	}
 	private void OnDestroy()
 	{
-		RestoreAll();
-		Unlisten();
-		if (_instance == this) _instance = null;
+		try { RestoreAll(); }
+		catch (Exception ex) { Plugin.Log.LogWarning("[Ghost] destroyed director restore skipped: " + ex.Message); }
+		finally
+		{
+			Unlisten();
+			if (ReferenceEquals(_instance, this)) { _instance = null; _spawner = null; }
+		}
 	}
 }

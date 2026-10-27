@@ -1,6 +1,7 @@
 using System;
 using System.Linq.Expressions;
 using System.Reflection;
+using BepInEx.Bootstrap;
 using EFT;
 using EFT.HealthSystem;
 using HarmonyLib;
@@ -10,7 +11,10 @@ namespace Manimal.Terminal;
 // zzap: optional integrations resolved once; no runtime member searches/Invoke arrays.
 internal static class TerminalGhostPatches
 {
-	internal static bool FikaPresent { get; private set; }
+	private static bool _fikaPresent;
+	// Hot path (per bot per frame): read the cached flag only; registry rechecks
+	// happen at install time and at each raid start.
+	internal static bool FikaPresent => _fikaPresent;
 	internal static bool CoreReady { get; private set; }
 	private static Type _sainComponent;
 	private static MethodInfo _bigBrain;
@@ -43,12 +47,7 @@ internal static class TerminalGhostPatches
 			string name = assemblies[i].GetName().Name;
 			if (name.IndexOf("BigBrain", StringComparison.OrdinalIgnoreCase) >= 0) _hasBigBrain = true;
 			if (string.Equals(name, "SAIN", StringComparison.OrdinalIgnoreCase)) _hasSain = true;
-			if (name.IndexOf("Fika", StringComparison.OrdinalIgnoreCase) >= 0)
-			{
-				FikaPresent = true;
-				Plugin.Log.LogWarning("[Ghost] Fika assembly present; Ghost disabled for the entire session");
-				return;
-			}
+			if (DetectFika(name)) return;
 		}
 		_bigBrain = Resolve("DrakiaXYZ.BigBrain.Patches.BotAgentUpdatePatch", "PatchPrefix");
 		_sainGoal = Resolve("SAIN.SAINComponent.Classes.EnemyClasses.SAINEnemyController", "set_GoalEnemy");
@@ -77,16 +76,25 @@ internal static class TerminalGhostPatches
 		}
 	}
 
+	// Integration DLLs can contain "Fika" without installing the Fika client.
+	// Recheck the registry too: a plugin GUID can appear after its assembly event.
+	private static bool DetectFika(string assemblyName)
+	{
+		if (!_fikaPresent && (string.Equals(assemblyName, "Fika.Core", StringComparison.OrdinalIgnoreCase)
+			|| Chainloader.PluginInfos.ContainsKey("com.fika.core")))
+		{
+			_fikaPresent = true;
+			Plugin.Log.LogWarning("[Ghost] Fika installed; Ghost disabled for the entire session");
+		}
+		return _fikaPresent;
+	}
+
 	private static void OnAssemblyLoaded(object sender, AssemblyLoadEventArgs args)
 	{
 		// BepInEx may load another plugin after our Awake. Do not touch Unity here;
 		// the director restores on the next main-thread Update if Fika loads late.
 		string name = args.LoadedAssembly.GetName().Name;
-		if (!FikaPresent && name.IndexOf("Fika", StringComparison.OrdinalIgnoreCase) >= 0)
-		{
-			FikaPresent = true;
-			Plugin.Log.LogWarning("[Ghost] late Fika assembly detected; Ghost disabled");
-		}
+		DetectFika(name);
 		if (_hooksFrozen && (string.Equals(name, "SAIN", StringComparison.OrdinalIgnoreCase) || name.IndexOf("BigBrain", StringComparison.OrdinalIgnoreCase) >= 0))
 		{
 			CoreReady = false;
@@ -129,7 +137,7 @@ internal static class TerminalGhostPatches
 	internal static void CheckInstalled()
 	{
 		_hooksFrozen = true;
-		if (FikaPresent) return;
+		if (DetectFika(null)) return;
 		CoreReady = Installed(AccessTools.Method(typeof(LocalGame), "Create"), typeof(Patch_NewRaid))
 			&& Installed(AccessTools.Method(typeof(GameWorld), "Dispose"), typeof(Patch_EndRaid))
 			&& Installed(AccessTools.Method(typeof(AICoreAgent<BotLogicDecision>), "Update"), typeof(Patch_Agent))
@@ -206,7 +214,7 @@ internal static class TerminalGhostPatches
 	internal static class Patch_NewRaid
 	{
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
-		private static void Prefix() { TerminalGhostDirector.ResetForRaid(); }
+		private static void Prefix() { DetectFika(null); TerminalGhostDirector.ResetForRaid(); }
 	}
 
 	[HarmonyPatch(typeof(GameWorld), "Dispose")]

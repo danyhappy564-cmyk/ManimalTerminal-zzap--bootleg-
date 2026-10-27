@@ -56,6 +56,15 @@ internal static class TerminalGrass
 
 	private static GPUInstancerPrefabPrototype _prototype;
 
+	internal static void ReleaseAfterRaid()
+	{
+		GameObject host = _host;
+		_host = null;
+		TerminalRaidCleanup.DestroyOwned(_prototype);
+		_prototype = null;
+		TerminalRaidCleanup.DestroyOwned(host);
+	}
+
 	private static void Restore()
 	{
 		try

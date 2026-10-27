@@ -12,7 +12,7 @@ internal static class TerminalAudioTeardown
 		[HarmonyFinalizer]
 		private static Exception Finalizer(Exception __exception)
 		{
-			if (__exception != null && TerminalGate.On)
+			if (__exception != null && (TerminalGate.On || TerminalGate.RaidEnded))
 			{
 				Plugin.Log.LogWarning("[AudioTeardown] AmbientAudioSystem.Dispose threw (swallowed, session end continues): " + __exception.Message);
 				return null;
@@ -27,7 +27,7 @@ internal static class TerminalAudioTeardown
 		[HarmonyFinalizer]
 		private static Exception Finalizer(Exception __exception)
 		{
-			if (__exception != null && TerminalGate.On)
+			if (__exception != null && (TerminalGate.On || TerminalGate.RaidEnded))
 			{
 				Plugin.Log.LogWarning("[AudioTeardown] EnvironmentSoundBlendSystem.Dispose threw (swallowed): " + __exception.Message);
 				return null;

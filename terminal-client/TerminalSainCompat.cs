@@ -20,6 +20,8 @@ internal static class TerminalSainCompat
 
 	private static object _lastAppliedInstance;
 
+	internal static void ReleaseAfterRaid() { _lastAppliedInstance = null; }
+
 	internal static bool Detected => _detected;
 
 	internal static void Install(Harmony harmony)

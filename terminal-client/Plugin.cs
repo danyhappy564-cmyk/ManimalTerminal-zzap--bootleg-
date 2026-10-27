@@ -322,7 +322,7 @@ public class Plugin : BaseUnityPlugin
 	{
 		Log = Logger;
 		HarmonyInstance = new Harmony("com.manimal.terminal");
-		GhostMode = Config.Bind("Terminal", "GhostMode", false, "Pause distant ordinary squads (Terminal only; disabled with any Fika assembly). Experimental Ghost mode.");
+		GhostMode = Config.Bind("Terminal", "GhostMode", false, "Pause distant ordinary squads (Terminal only; disabled when Fika is installed). Experimental Ghost mode.");
 		GhostSleepDistance = Config.Bind("Terminal", "GhostSleepDistance", 250f, new ConfigDescription("All living squad members must be farther than this from every living human (meters).", new AcceptableValueRange<float>(50f, 1500f)));
 		GhostWakeDistance = Config.Bind("Terminal", "GhostWakeDistance", 200f, new ConfigDescription("Immediate squad wake distance (meters); clamped below sleep distance at runtime.", new AcceptableValueRange<float>(10f, 1499f)));
 		GhostBrainThrottle = Config.Bind("Terminal", "GhostBrainThrottle", true, "Stage 1 uses a full brain stop while dormant. OFF wakes Ghost-owned bots and suspends new sleeps for safety.");
@@ -464,6 +464,7 @@ public class Plugin : BaseUnityPlugin
 		}
 		TerminalBundleHost.Init();
 		Patch(typeof(TerminalGate.Patch_CaptureLocationId));
+		Patch(typeof(TerminalRaidCleanup.Patch_EndRaid));
 		Patch(typeof(TerminalIntroCutscene.Patch_PlayAtRaidStart));
 		Patch(typeof(TerminalAttackCutscene.Patch_ArmAttackTimer));
 		Patch(typeof(TerminalShaderRebind.Patch_RebindAtRaidStart));

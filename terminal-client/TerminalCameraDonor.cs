@@ -71,6 +71,8 @@ internal static class TerminalCameraDonor
 
 	private static GameObject _graftedGo;
 
+	internal static void ReleaseAfterRaid() { _graftedGo = null; ProvisionedBloom = null; }
+
 	internal static Behaviour ProvisionedBloom;
 
 	private static string DonorPath => Path.Combine(Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? ".", "plugin-data", "camera", "camera_donor.json");

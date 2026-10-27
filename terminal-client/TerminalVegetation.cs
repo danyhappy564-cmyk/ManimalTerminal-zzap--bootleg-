@@ -62,6 +62,19 @@ internal sealed class TerminalVegetation : MonoBehaviour
 
 	private static TerminalVegetation _instance;
 
+	internal static void ReleaseAfterRaid()
+	{
+		TerminalVegetation instance = _instance;
+		_instance = null;
+		if (instance)
+		{
+			SceneManager.sceneLoaded -= instance.OnSceneLoaded;
+			instance.StopAllCoroutines();
+			instance.enabled = false;
+			TerminalRaidCleanup.DestroyOwned(instance.gameObject);
+		}
+	}
+
 	private static JObject _data;
 
 	private SoundBank _bank;

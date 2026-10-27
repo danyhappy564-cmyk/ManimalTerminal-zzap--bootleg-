@@ -15,6 +15,7 @@ internal static class TerminalGate
 	{
 		internal static void Prefix(LocationSettings.Location location)
 		{
+			RaidEnded = false;
 			bool flag = string.Equals(PendingLocationId, "Terminal", StringComparison.OrdinalIgnoreCase);
 			PendingLocationId = location?.Id;
 			TerminalCoop.Reset();
@@ -84,6 +85,14 @@ internal static class TerminalGate
 	internal const string LocationId = "Terminal";
 
 	internal static string PendingLocationId;
+	internal static bool RaidEnded;
+
+	internal static void MarkRaidEnded()
+	{
+		RaidEnded = true;
+		_cachedFrame = -1;
+		_cachedOn = false;
+	}
 
 	private static int _cachedFrame = -1;
 
@@ -93,6 +102,7 @@ internal static class TerminalGate
 	{
 		get
 		{
+			if (RaidEnded) return false;
 			int num;
 			try
 			{

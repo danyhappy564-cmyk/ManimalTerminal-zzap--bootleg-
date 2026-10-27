@@ -221,4 +221,6 @@ internal static class TerminalStageWait
 		}
 		Layers.Clear();
 	}
+
+	internal static void ReleaseAfterRaid() { Layers.Clear(); }
 }

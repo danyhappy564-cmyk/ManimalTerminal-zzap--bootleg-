@@ -64,6 +64,13 @@ internal static class TerminalAIBake
 
 	internal static bool Loaded;
 
+	internal static void ReleaseAfterRaid()
+	{
+		_marker = null;
+		_comps.Clear();
+		Loaded = false;
+	}
+
 	private static readonly Dictionary<long, Component> _comps = new Dictionary<long, Component>();
 
 	private const float SnapRadius = 1.5f;

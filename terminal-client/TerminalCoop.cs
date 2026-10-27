@@ -139,10 +139,13 @@ internal static class TerminalCoop
 
 	internal static void Reset()
 	{
+		Nearby.Clear();
 		_fikaRaidActive = false;
 		Applying = (Replaying = (RaidStarted = (SyncReady = (IntroReleased = (AttackReleased = false)))));
 		IntroStarted = -1.0;
 		AttackStarted = -1.0;
 		RaidReset?.Invoke();
 	}
+
+	internal static void ReleaseAfterRaid() { Nearby.Clear(); }
 }

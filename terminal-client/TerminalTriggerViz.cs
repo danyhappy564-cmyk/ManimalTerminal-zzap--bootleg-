@@ -28,6 +28,15 @@ internal class TerminalTriggerViz : MonoBehaviour
 
 	private static Material _mat;
 
+	internal static void ReleaseAfterRaid()
+	{
+		TerminalTriggerViz instance = Instance;
+		Instance = null;
+		if (instance) TerminalRaidCleanup.DestroyOwned(instance.gameObject);
+		TerminalRaidCleanup.DestroyOwned(_mat);
+		_mat = null;
+	}
+
 	private static bool Visible
 	{
 		get

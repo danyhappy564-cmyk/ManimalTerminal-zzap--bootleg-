@@ -69,8 +69,9 @@ internal static class TerminalPopulationDirector
 			if (TerminalGate.On && TerminalCoop.Authority && __instance?.BotSpawner != null)
 			{
 				ResetForRaid();
-				__instance.BotSpawner.OnBotCreated += OnBotCreated;
-				__instance.BotSpawner.OnBotRemoved += OnBotRemoved;
+				_spawner = __instance.BotSpawner;
+				_spawner.OnBotCreated += OnBotCreated;
+				_spawner.OnBotRemoved += OnBotRemoved;
 				_host = new GameObject("Terminal_PopulationDirector");
 				_host.AddComponent<Host>();
 				Plugin.Log.LogInfo("[Population] ledger armed (event-driven births/deaths, scav-priority corpse cleanup); " + $"recycling scav={Plugin.ScavRecycler.Value} RUAF={Plugin.RuafRecycler.Value} BD={Plugin.BlackDivisionRecycler.Value}; " + $"corpse retention scav={Plugin.ScavCorpseLifetime.Value:0}s/{Plugin.ScavCorpseCleanupDistance.Value:0}m " + $"special={Plugin.SpecialCorpseLifetime.Value:0}s/{Plugin.SpecialCorpseCleanupDistance.Value:0}m");
@@ -583,6 +584,7 @@ internal static class TerminalPopulationDirector
 	}
 
 	private static GameObject _host;
+	private static BotSpawner _spawner;
 
 	private static int _highestProgressTier = -1;
 
@@ -707,8 +709,30 @@ internal static class TerminalPopulationDirector
 		}
 	}
 
+	private static void Unlisten()
+	{
+		BotSpawner spawner = _spawner;
+		_spawner = null;
+		if (spawner == null) return;
+		try { spawner.OnBotCreated -= OnBotCreated; } catch (Exception) { }
+		try { spawner.OnBotRemoved -= OnBotRemoved; } catch (Exception) { }
+	}
+
+	internal static int ReleaseAfterRaid()
+	{
+		int count = Entries.Count;
+		Unlisten();
+		Entries.Clear(); // no visibility repair on already disposed players
+		RecycleDiagnosticTimes.Clear();
+		GameObject host = _host;
+		_host = null;
+		TerminalRaidCleanup.DestroyOwned(host);
+		return count;
+	}
+
 	internal static void ResetForRaid()
 	{
+		Unlisten();
 		foreach (Entry value in Entries.Values)
 		{
 			FinishBodyVisibilityRepair(value);

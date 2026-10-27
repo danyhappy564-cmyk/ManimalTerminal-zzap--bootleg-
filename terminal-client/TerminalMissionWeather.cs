@@ -484,6 +484,20 @@ internal static class TerminalMissionWeather
 		return _skyTime;
 	}
 
+	internal static void ReleaseAfterRaid()
+	{
+		_owner = null;
+		_previousCurve = null;
+		_curve = null;
+		_previousDebug = null;
+		_clock = null;
+		_tod = null;
+		_endingPreviousCurve = null;
+		_endingPreviousDebug = null;
+		_endingApplied = false;
+		_lockPending = _expectedLock = false;
+	}
+
 	internal static void ResetForRaid()
 	{
 		ResetEndingWeather();

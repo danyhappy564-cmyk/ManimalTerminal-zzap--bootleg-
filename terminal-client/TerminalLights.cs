@@ -146,6 +146,13 @@ internal static class TerminalLights
 
 		private void Update()
 		{
+			if (!TerminalGate.On)
+			{
+				StopAllCoroutines();
+				UnityEngine.Object.Destroy(gameObject);
+				return;
+			}
+			TerminalGhostDirector.EnsureForRaid(); // retry if the spawner was not ready at OnGameStarted
 			float unscaledDeltaTime = Time.unscaledDeltaTime;
 			_frameAvg = Mathf.Lerp((_frameAvg <= 0f) ? unscaledDeltaTime : _frameAvg, unscaledDeltaTime, 0.05f);
 			bool flag = _frameAvg > 1.5f / Mathf.Max(30f, (Application.targetFrameRate > 0) ? ((float)Application.targetFrameRate) : 60f);
@@ -321,6 +328,7 @@ internal static class TerminalLights
 		_nextCutsceneLightRefresh = 0f;
 		_nextManagerlessLightRefresh = 0f;
 		_sky = null;
+		_opticCam = null;
 		_skyTimeLogged = false;
 		_ambientAuthorityTaken = false;
 	}

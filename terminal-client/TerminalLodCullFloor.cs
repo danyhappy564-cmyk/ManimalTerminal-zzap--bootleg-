@@ -53,6 +53,19 @@ internal static class TerminalLodCullFloor
 
 	private static readonly Stopwatch _sw = new Stopwatch();
 
+	internal static void ReleaseAfterRaid()
+	{
+		_g = null;
+		_orig = null;
+		_neverCull = null;
+		_cells = null;
+		_dirty.Clear();
+		_dirtyWant.Clear();
+		_draining = null;
+		_n = 0;
+		_built = false;
+	}
+
 	private static Vector3Int Key(Vector3 p)
 	{
 		return new Vector3Int(Mathf.RoundToInt(p.x / _cellSize), Mathf.RoundToInt(p.y / _cellSize), Mathf.RoundToInt(p.z / _cellSize));

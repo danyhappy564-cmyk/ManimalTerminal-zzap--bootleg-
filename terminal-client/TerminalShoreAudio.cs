@@ -11,6 +11,19 @@ internal static class TerminalShoreAudio
 
 	internal static bool AssetsReady => _assetsReady;
 
+	internal static void ReleaseAfterRaid()
+	{
+		TerminalShoreAudioLoader loader = _instance;
+		_instance = null;
+		_assetsReady = false;
+		if (loader)
+		{
+			loader.StopAllCoroutines();
+			loader.enabled = false;
+			TerminalRaidCleanup.DestroyOwned(loader.gameObject);
+		}
+	}
+
 	internal static void ResetForRaid()
 	{
 		if ((bool)_instance)

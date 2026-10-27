@@ -299,6 +299,7 @@ internal static class TerminalGhostSain
 		_ticks = _skipped = 0;
 		_reportFrame = -1;
 		_soundCacheDirty = false;
+		if (_wakeEnemies != null) Array.Clear(_wakeEnemies, 0, _wakeEnemies.Length);
 	}
 	private static Sample StartSample()
 	{

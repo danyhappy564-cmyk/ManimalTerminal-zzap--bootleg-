@@ -13,6 +13,8 @@ internal static class TerminalFxBundle
 
 	private static readonly Dictionary<string, AudioClip> _clips = new Dictionary<string, AudioClip>();
 
+	internal static void ReleaseAfterRaid() { _clips.Clear(); }
+
 	internal static AssetBundle Get()
 	{
 		if (_tried)

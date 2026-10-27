@@ -66,6 +66,12 @@ internal static class TerminalWeather
 
 	internal static void ResetForRaid()
 	{
+		_comps.Clear();
+		_pathIndex.Clear();
+		_assetCache.Clear();
+		_settingsCache.Clear();
+		_terminalCloudMap = null;
+		_terminalRainRipple = null;
 		_marker = null;
 		_rainVisualReady = false;
 		_nextRainVisualAttempt = 0f;

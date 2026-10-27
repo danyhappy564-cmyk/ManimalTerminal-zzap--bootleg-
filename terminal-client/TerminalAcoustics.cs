@@ -382,6 +382,35 @@ internal static class TerminalAcoustics
 		return _configuredShorePlayers.Contains(player);
 	}
 
+	internal static void ReleaseAfterRaid(out int clips, out int ambient)
+	{
+		clips = _clipCache?.Count ?? _recoveredLoopClips.Count;
+		ambient = _ownedAmbientComponents.Count;
+		// Scene-owned components and borrowed fields are already being disposed.
+		// Do not restore fields, reactivate roots or destroy their components here.
+		_clipCache = null;
+		_recoveredLoopClips.Clear();
+		_configuredShorePlayers.Clear();
+		_banks.Clear();
+		_ownedAmbientComponents.Clear();
+		_borrowedAmbientFields.Clear();
+		_forcedLoopSources.Clear();
+		_fallbackSources.Clear();
+		_fallbackSourceStates.Clear();
+		_fallbackGovernors.Clear();
+		_ambientComponents = null;
+		_envRoot = _spatialMarker = _ambientMarker = _ambientRoot = _ambientConstructionRoot = null;
+		_spatialTask = null;
+		_spatialKick = _spatialVerdict = false;
+		_ambientLifecycle.Reset();
+		_shoreAssetWaitLogged = _ambientFailureReported = _ambientSilenced = false;
+		if (_seasonInvalidationSubscribed)
+			TerminalAmbientSeasonAssets.Invalidating -= OnSeasonAssetsInvalidating;
+		_seasonInvalidationSubscribed = false;
+		foreach (UnityEngine.Object asset in _ownedAmbientAssets) TerminalRaidCleanup.DestroyOwned(asset);
+		_ownedAmbientAssets.Clear();
+	}
+
 	internal static void ResetRecoveredAudioForRaid()
 	{
 		TeardownAmbientForRaid();

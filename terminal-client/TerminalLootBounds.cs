@@ -53,6 +53,13 @@ internal static class TerminalLootBounds
 
 	private static bool _summarised;
 
+	internal static void ReleaseAfterRaid()
+	{
+		_tracked.Clear();
+		_done.Clear();
+		_discovering = false;
+	}
+
 	internal static void ResetForRaid()
 	{
 		UnhideAll();

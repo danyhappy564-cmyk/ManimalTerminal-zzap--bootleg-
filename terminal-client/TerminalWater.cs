@@ -95,6 +95,20 @@ internal static class TerminalWater
 
 	private static readonly List<TerminalWaterMatrixDriver> OwnedContainers = new List<TerminalWaterMatrixDriver>(2);
 
+	internal static void ReleaseAfterRaid()
+	{
+		RendererStates.Clear();
+		OwnedContainers.Clear();
+		_texIndex = null;
+		_nativeRenderer = null;
+		TerminalRaidCleanup.DestroyOwned(_ownedDirtMaterial);
+		TerminalRaidCleanup.DestroyOwned(_runtimeWaterRoot);
+		TerminalRaidCleanup.DestroyOwned(_runtimeRendererRoot);
+		_ownedDirtMaterial = null;
+		_runtimeWaterRoot = _runtimeRendererRoot = null;
+		_staged = _ready = _staging = false;
+	}
+
 	internal static void ResetForRaid()
 	{
 		CleanupAttempt();

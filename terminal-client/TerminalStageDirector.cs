@@ -145,10 +145,14 @@ internal static class TerminalStageDirector
 
 		internal void StopListening()
 		{
-			StopMigrationPass();
-			TerminalBotMigration.ResetForRaid();
-			DetachDispatcher();
-			_botZones = Array.Empty<BotZone>();
+			try { StopMigrationPass(); }
+			finally
+			{
+				TerminalBotMigration.ResetForRaid();
+				DetachDispatcher();
+				_botZones = Array.Empty<BotZone>();
+				_stageZones.Clear();
+			}
 		}
 
 		private void OnDestroy()
@@ -352,6 +356,18 @@ internal static class TerminalStageDirector
 	{
 		return TerminalGate.On && Plugin.StageDirector.Value && _host
 			&& _host.GhostShouldHold(zoneName, TerminalGhostPolicy.Cutscene);
+	}
+
+	internal static void ReleaseAfterRaid()
+	{
+		Host host = _host;
+		_host = null;
+		TerminalStageWait.ReleaseAfterRaid();
+		TerminalStageWaveBlock.ResetForRaid();
+		TerminalBotMigration.ResetForRaid();
+		if (!host) return;
+		try { host.enabled = false; host.StopListening(); }
+		finally { TerminalRaidCleanup.DestroyOwned(host.gameObject); }
 	}
 
 	internal static void ResetForRaid()

@@ -282,7 +282,7 @@ internal static class TerminalAmbientSeasonAssets
 		return false;
 	}
 
-	internal static void ResetForRaid()
+	internal static void ResetForRaid(bool immediate = true)
 	{
 		_generation++;
 		if ((bool)_runner && _loadRoutine != null)
@@ -299,7 +299,7 @@ internal static class TerminalAmbientSeasonAssets
 		_runner = null;
 		DisposeRequest();
 		UnsubscribeAudioReset();
-		DestroyOwnedAssets();
+		DestroyOwnedAssets(immediate);
 		_active = null;
 		_definition = null;
 		_phase = Phase.Idle;
@@ -1010,7 +1010,7 @@ internal static class TerminalAmbientSeasonAssets
 		Plugin.Log?.LogWarning("[AmbientSeason] " + _lastError);
 	}
 
-	private static void DestroyOwnedAssets()
+	private static void DestroyOwnedAssets(bool immediate = true)
 	{
 		for (int num = OwnedAssets.Count - 1; num >= 0; num--)
 		{
@@ -1019,7 +1019,8 @@ internal static class TerminalAmbientSeasonAssets
 			{
 				try
 				{
-					UnityEngine.Object.DestroyImmediate(obj);
+					if (immediate) UnityEngine.Object.DestroyImmediate(obj);
+					else TerminalRaidCleanup.DestroyOwned(obj);
 				}
 				catch
 				{

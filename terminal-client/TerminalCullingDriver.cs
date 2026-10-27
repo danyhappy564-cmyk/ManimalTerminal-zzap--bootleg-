@@ -169,6 +169,25 @@ internal class TerminalCullingDriver : MonoBehaviour
 
 	private static MethodInfo _amOverride;
 
+	internal static void ReleaseAfterRaid()
+	{
+		TerminalCullingDriver instance = Instance;
+		Instance = null;
+		CameraRef = null;
+		if (instance)
+		{
+			instance.StopAllCoroutines();
+			instance.enabled = false;
+			TerminalRaidCleanup.DestroyOwned(instance.gameObject);
+		}
+		ResetForNewRaid();
+		_pcDrainScratch.Clear();
+		_pcGroupScratch.Clear();
+		_strippedEffects.Clear();
+		_guardScratch.Clear();
+		RestoreLodBias();
+	}
+
 	internal static void ResetForNewRaid()
 	{
 		_rendererPosMap = null;

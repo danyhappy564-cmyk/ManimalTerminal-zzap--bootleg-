@@ -21,6 +21,13 @@ internal static class TerminalAudioRouting
 
 	private static readonly Dictionary<string, AudioMixerGroup> Groups = new Dictionary<string, AudioMixerGroup>(StringComparer.OrdinalIgnoreCase);
 
+	internal static void ReleaseAfterRaid()
+	{
+		Groups.Clear();
+		_settingsMixer = null;
+		_lastOverallIndex = -1;
+	}
+
 	internal static AudioMixerGroup AmbientBed()
 	{
 		return FindMasterGroup("AmbientOut");

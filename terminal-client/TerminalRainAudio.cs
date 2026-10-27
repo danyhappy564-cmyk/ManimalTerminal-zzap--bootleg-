@@ -63,6 +63,14 @@ internal static class TerminalRainAudio
 		RainController.ERainIntensity.High
 	};
 
+	internal static void ReleaseAfterRaid()
+	{
+		_nativeActive = false;
+		_raidBlenders = new PrecipitationAmbientBlender[0];
+		NativeMuteStates.Clear();
+		TerminalRainBed.ResetForRaid();
+	}
+
 	internal static void ResetForRaid()
 	{
 		_nativeActive = false;

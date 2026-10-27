@@ -75,6 +75,13 @@ internal static class TerminalSubtitles
 
 	private static SubtitleHost _host;
 
+	internal static void ReleaseAfterRaid()
+	{
+		SubtitleHost host = _host;
+		_host = null;
+		if (host) TerminalRaidCleanup.DestroyOwned(host.gameObject);
+	}
+
 	private static Font _benderBold;
 
 	private static Font _benderRegular;

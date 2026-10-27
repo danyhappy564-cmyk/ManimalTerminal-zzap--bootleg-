@@ -256,7 +256,7 @@ internal static class TerminalAmbientEffectsAssets
 		return true;
 	}
 
-	internal static void Reset()
+	internal static void Reset(bool immediate = true)
 	{
 		_active = null;
 		_activeMixer = null;
@@ -265,7 +265,8 @@ internal static class TerminalAmbientEffectsAssets
 			ScriptableObject scriptableObject = OwnedAssets[num];
 			if ((bool)scriptableObject)
 			{
-				UnityEngine.Object.DestroyImmediate(scriptableObject);
+				if (immediate) UnityEngine.Object.DestroyImmediate(scriptableObject);
+				else TerminalRaidCleanup.DestroyOwned(scriptableObject);
 			}
 		}
 		OwnedAssets.Clear();
