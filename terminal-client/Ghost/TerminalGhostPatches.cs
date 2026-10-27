@@ -302,6 +302,14 @@ internal static class TerminalGhostPatches
 	[HarmonyPatch(typeof(ActiveHealthController), "ApplyDamage")]
 	internal static class Patch_Damage
 	{
+		[HarmonyPrefix, HarmonyPriority(Priority.First)]
+		private static void Prefix(out TerminalTickProfiler.Scope __state)
+		{
+			__state = TerminalGate.On ? TerminalTickProfiler.Measure("Patch.ApplyDamage.total") : default;
+		}
+		[HarmonyFinalizer]
+		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
+
 		[HarmonyPostfix]
 		private static void Postfix(ActiveHealthController __instance, float __result)
 		{
@@ -316,13 +324,16 @@ internal static class TerminalGhostPatches
 	internal static class Patch_Death
 	{
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
-		private static void Prefix(Player __instance)
+		private static void Prefix(Player __instance, out TerminalTickProfiler.Scope __state)
 		{
+			__state = TerminalGate.On ? TerminalTickProfiler.Measure("Patch.PlayerDeath.total") : default;
 			// Combat restored its casualty BEFORE entering the normal Player damage
 			// pipeline. Keep that body visible without waking its remaining squad.
 			if (!TerminalGhostCombatDamage.IsSimulated(__instance))
 				TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner);
 		}
+		[HarmonyFinalizer]
+		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
 	}
 
 	[HarmonyPatch(typeof(ShootData), "Shoot")]
@@ -412,6 +423,13 @@ internal static class TerminalGhostPatches
 	[HarmonyPatch(typeof(WeaponPrefab), "Parent")]
 	internal static class Patch_WeaponParent
 	{
+		[HarmonyPrefix, HarmonyPriority(Priority.First)]
+		private static void Prefix(out TerminalTickProfiler.Scope __state)
+		{
+			__state = TerminalGate.On ? TerminalTickProfiler.Measure("Patch.WeaponParent.total") : default;
+		}
+		[HarmonyFinalizer]
+		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
 		[HarmonyPostfix]
 		private static void Postfix(WeaponPrefab __instance, IPlayer player) { TerminalGhostDirector.WeaponParented(__instance, player); }
 	}
@@ -420,6 +438,12 @@ internal static class TerminalGhostPatches
 	internal static class Patch_WeaponPool
 	{
 		[HarmonyPrefix]
-		private static void Prefix(WeaponPrefab __instance) { TerminalGhostDirector.WeaponReturning(__instance); }
+		private static void Prefix(WeaponPrefab __instance, out TerminalTickProfiler.Scope __state)
+		{
+			__state = TerminalGate.On ? TerminalTickProfiler.Measure("Patch.WeaponReturnToPool.total") : default;
+			TerminalGhostDirector.WeaponReturning(__instance);
+		}
+		[HarmonyFinalizer]
+		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
 	}
 }

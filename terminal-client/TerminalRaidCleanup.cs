@@ -41,6 +41,7 @@ internal static class TerminalRaidCleanup
 		if (!Release("ambient seasons", () => TerminalAmbientSeasonAssets.ResetForRaid(immediate: false))) failed++;
 		Release("civilians", () => { CivilianFleeState.ClearAll(); CivilianUnstickHelper.ClearAll(); CivilianMeleeEnforcer.ClearAll(); });
 		Release("crew", TerminalCrewJobs.Reset);
+		Release("RUAF neutrality", TerminalRuafNeutral.ResetForRaid);
 		Release("spawn gate", TerminalSpawnGate.ResetForRaid);
 		Release("sound rig", TerminalSoundRig.ResetForNewRaid);
 		Release("rain", TerminalRainAudio.ReleaseAfterRaid);

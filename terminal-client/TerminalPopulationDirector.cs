@@ -162,6 +162,14 @@ internal static class TerminalPopulationDirector
 	})]
 	internal static class Patch_AuditCorpseIdentity
 	{
+		[HarmonyPrefix, HarmonyPriority(Priority.First)]
+		private static void Prefix(out TerminalTickProfiler.Scope __state)
+		{
+			__state = TerminalGate.On ? TerminalTickProfiler.Measure("Patch.CorpseInit.total") : default;
+		}
+		[HarmonyFinalizer]
+		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
+
 		[HarmonyPostfix]
 		private static void Postfix(Corpse __instance, string playerProfileID, InventoryEquipment equipment)
 		{
@@ -171,6 +179,7 @@ internal static class TerminalPopulationDirector
 			}
 			try
 			{
+				using var scope = TerminalTickProfiler.Measure("Population.CorpseIdentity");
 				Entries.TryGetValue(playerProfileID, out var value);
 				bool flag = value != null && (bool)value.Player && value.Player.Equipment == equipment;
 				int num = __instance.gameObject.GetComponents<Corpse>().Length;
@@ -337,10 +346,15 @@ internal static class TerminalPopulationDirector
 				Corpse component = item.Player.GetComponent<Corpse>();
 				if ((bool)component && !IsNearAnyHuman(world, component.transform.position, num2 * num2))
 				{
-					if (RetireCorpse(world, item, component))
+					IEnumerator retirement = RetireCorpse(world, item, component);
+					while (true)
 					{
-						removed++;
+						bool pending;
+						using (TerminalTickProfiler.Measure("Population.RetireCorpse")) pending = retirement.MoveNext();
+						if (!pending) break;
+						yield return null;
 					}
+					if (item.Removed) removed++;
 					yield return null;
 				}
 			}
@@ -380,15 +394,18 @@ internal static class TerminalPopulationDirector
 			return false;
 		}
 
-		private static bool RetireCorpse(GameWorld world, Entry e, Corpse corpse)
+		// A sweep already retired at most one corpse per frame. Split ONE corpse's
+		// independent teardown stages too; never hold a profiler scope across yield.
+		private static IEnumerator RetireCorpse(GameWorld world, Entry e, Corpse corpse)
 		{
-			using (TerminalTickProfiler.Measure("Population.RetireCorpse"))
+			if (!world || !corpse || !e.Player || e.Alive || e.Removed) yield break;
 			{
 				FinishBodyVisibilityRepair(e);
 				Player player = e.Player;
 				int num = 0;
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.Bleeding");
 					if (Singleton<Effects>.Instantiated)
 					{
 						Singleton<Effects>.Instance.EffectsCommutator?.StopBleedingForPlayer(player);
@@ -400,14 +417,20 @@ internal static class TerminalPopulationDirector
 				}
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.Tasks");
 					num = CancelDelayedBotTasks(e.Bot);
 				}
 				catch (Exception ex2)
 				{
 					Plugin.Log.LogWarning("[CorpseCleanup] delayed-AI purge failed for " + e.ProfileId + ": " + ex2.Message);
 				}
+				yield return null;
+				if (!world || !corpse || !player || player.HealthController?.IsAlive == true) yield break;
+				float distance = e.OrdinaryScav ? Plugin.ScavCorpseCleanupDistance.Value : Plugin.SpecialCorpseCleanupDistance.Value;
+				if (IsNearAnyHuman(world, corpse.transform.position, distance * distance)) yield break;
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.BodyLedger");
 					DeadBodiesController deadBodiesController = ((!e.Bot) ? null : e.Bot.BotsGroup?.DeadBodiesController);
 					if (deadBodiesController != null)
 					{
@@ -427,6 +450,7 @@ internal static class TerminalPopulationDirector
 				}
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.DestroyInfo");
 					e.Bot?.BotsController?.DestroyInfo(player);
 				}
 				catch (Exception ex4)
@@ -435,14 +459,18 @@ internal static class TerminalPopulationDirector
 				}
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.LocalRegistries");
 					RemoveFromLocalGameRegistries(e.ProfileId, player);
 				}
 				catch (Exception ex5)
 				{
 					Plugin.Log.LogWarning("[CorpseCleanup] local-game unregister failed for " + e.ProfileId + ": " + ex5.Message);
 				}
+				yield return null;
+				if (!world || !corpse || !player || player.HealthController?.IsAlive == true) yield break;
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.WorldUnregister");
 					if ((bool)world)
 					{
 						world.UnregisterPlayer(player);
@@ -454,29 +482,35 @@ internal static class TerminalPopulationDirector
 				}
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.RetainedRegistries");
 					RemoveFromGameWorldRetainedRegistries(world, e.ProfileId, player);
 				}
 				catch (Exception ex7)
 				{
 					Plugin.Log.LogWarning("[CorpseCleanup] retained-world unregister failed for " + e.ProfileId + ": " + ex7.Message);
 				}
+				yield return null;
+				if (!world || !corpse || !player || player.HealthController?.IsAlive == true) yield break;
 				try
 				{
+					using var scope = TerminalTickProfiler.Measure("Population.RetireCorpse.Hands");
 					player.method_118();
 				}
 				catch (Exception ex8)
 				{
 					Plugin.Log.LogWarning("[CorpseCleanup] hands release failed for " + e.ProfileId + ": " + ex8.Message);
 				}
+				yield return null;
+				if (!world || !corpse || !player || player.HealthController?.IsAlive == true) yield break;
 				try
 				{
 					e.Removed = true;
-					corpse.Kill();
+					using (TerminalTickProfiler.Measure("Population.RetireCorpse.Kill")) corpse.Kill();
 					try
 					{
 						if ((bool)corpse)
 						{
-							UnityEngine.Object.DestroyImmediate(corpse);
+							using (TerminalTickProfiler.Measure("Population.RetireCorpse.DestroyComponent")) UnityEngine.Object.Destroy(corpse);
 						}
 					}
 					catch (Exception ex9)
@@ -485,13 +519,11 @@ internal static class TerminalPopulationDirector
 					}
 					_retiredCorpses++;
 					Plugin.Log.LogInfo(string.Format("[CorpseCleanup] safely retired {0} {1} role={2} age={3:0}s aiTasksCancelled={4}", e.OrdinaryScav ? "ordinary scav" : "remote special", e.ProfileId, e.Role, Time.time - e.DeathAt, num));
-					return true;
 				}
 				catch (Exception arg)
 				{
 					e.Removed = false;
 					Plugin.Log.LogError($"[CorpseCleanup] Corpse.Kill failed for {e.ProfileId}; object left in place: {arg}");
-					return false;
 				}
 			}
 		}
@@ -913,6 +945,7 @@ internal static class TerminalPopulationDirector
 
 	private static void ScrubPooledCorpseComponents(BotOwner bot)
 	{
+		using var scope = TerminalTickProfiler.Measure("Population.ScrubPooledCorpse");
 		try
 		{
 			Player player = (bot ? bot.GetPlayer : null);
@@ -943,12 +976,14 @@ internal static class TerminalPopulationDirector
 
 	private static void RecordBot(BotOwner bot, bool recovered)
 	{
+		using var scope = TerminalTickProfiler.Measure("Population.RecordBot");
 		try
 		{
 			if (!bot)
 			{
 				return;
 			}
+			TerminalRuafNeutral.OnBotCreated(bot);
 			string profileId = bot.ProfileId;
 			Player getPlayer = bot.GetPlayer;
 			ProfileSettings profileSettings = bot.Profile?.Info?.Settings;
@@ -999,6 +1034,7 @@ internal static class TerminalPopulationDirector
 			return;
 		}
 		_nextNativeReconcile = Time.time + 1f;
+		using var scope = TerminalTickProfiler.Measure("Population.ReconcileNativeBots");
 		try
 		{
 			BotsList botsList = (Singleton<IBotGame>.Instantiated ? Singleton<IBotGame>.Instance : null)?.BotsController?.BotSpawner?._bots;
@@ -1009,6 +1045,9 @@ internal static class TerminalPopulationDirector
 			int recoveredBirths = _recoveredBirths;
 			foreach (BotOwner botOwner in botsList.BotOwners)
 			{
+				// Also retries groups whose first member had not finished activation
+				// at OnBotCreated. Successful groups take the cached fast path.
+				TerminalRuafNeutral.OnBotCreated(botOwner);
 				if ((bool)botOwner && !string.IsNullOrEmpty(botOwner.ProfileId) && !Entries.ContainsKey(botOwner.ProfileId))
 				{
 					RecordBot(botOwner, recovered: true);

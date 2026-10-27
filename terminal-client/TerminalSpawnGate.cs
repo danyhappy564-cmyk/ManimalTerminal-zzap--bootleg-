@@ -103,6 +103,7 @@ internal static class TerminalSpawnGate
 			{
 				return true;
 			}
+			using var scope = TerminalTickProfiler.Measure("SpawnGate.WavePrefix");
 			if (!TerminalCoop.Authority || _endingStopped)
 			{
 				__result = Task.CompletedTask;
@@ -161,6 +162,7 @@ internal static class TerminalSpawnGate
 			{
 				return true;
 			}
+			using var scope = TerminalTickProfiler.Measure("SpawnGate.BossPrefix");
 			if (!TerminalCoop.Authority || _endingStopped)
 			{
 				return false;
@@ -274,6 +276,7 @@ internal static class TerminalSpawnGate
 			{
 				return true;
 			}
+			using var scope = TerminalTickProfiler.Measure("SpawnGate.PlacementPrefix");
 			if (!TerminalCoop.Authority || _endingStopped)
 			{
 				return false;
@@ -315,6 +318,7 @@ internal static class TerminalSpawnGate
 			{
 				return true;
 			}
+			using var scope = TerminalTickProfiler.Measure("SpawnGate.WithoutWavePrefix");
 			if (!TerminalCoop.Authority || _endingStopped)
 			{
 				return false;

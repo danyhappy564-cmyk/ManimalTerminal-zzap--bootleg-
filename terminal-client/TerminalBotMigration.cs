@@ -152,6 +152,7 @@ internal static class TerminalBotMigration
 
 	internal static bool TryMigrateTo(BotOwner bot, BotZone destination, out string reason)
 	{
+		using var scope = TerminalTickProfiler.Measure("Migration.TryMigrateTo");
 		reason = "unavailable";
 		if (!ScopeIsActive())
 		{

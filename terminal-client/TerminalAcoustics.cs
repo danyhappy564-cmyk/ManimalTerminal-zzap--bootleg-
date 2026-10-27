@@ -182,6 +182,9 @@ internal static class TerminalAcoustics
 	private static bool _spatialVerdict;
 
 	private static EnvironmentType _lastEnv = (EnvironmentType)(-1);
+	private static EnvironmentType _lastManagerEnv = (EnvironmentType)(-1);
+	private static float _nextEnvLog;
+	private static Player _envPlayer;
 
 	private static int _driveTick;
 
@@ -384,6 +387,9 @@ internal static class TerminalAcoustics
 
 	internal static void ReleaseAfterRaid(out int clips, out int ambient)
 	{
+		_envPlayer = null;
+		_lastEnv = _lastManagerEnv = (EnvironmentType)(-1);
+		_nextEnvLog = 0f;
 		clips = _clipCache?.Count ?? _recoveredLoopClips.Count;
 		ambient = _ownedAmbientComponents.Count;
 		// Scene-owned components and borrowed fields are already being disposed.
@@ -856,6 +862,7 @@ internal static class TerminalAcoustics
 					Component component = transform.gameObject.GetComponent(type);
 					if (component != null)
 					{
+						if (component is PrecipitationAmbientBlender existingRain) TerminalRainAudio.RegisterBlender(existingRain);
 						dictionary2[item.Value<long>("path_id")] = component;
 						num2++;
 						continue;
@@ -863,6 +870,7 @@ internal static class TerminalAcoustics
 					try
 					{
 						Component component2 = transform.gameObject.AddComponent(type);
+						if (component2 is PrecipitationAmbientBlender newRain) TerminalRainAudio.RegisterBlender(newRain);
 						dictionary2[item.Value<long>("path_id")] = component2;
 						if (component2 != null)
 						{
@@ -2393,10 +2401,21 @@ internal static class TerminalAcoustics
 			catch
 			{
 			}
-			if (instance.Environment != _lastEnv)
+			if (Time.unscaledTime >= _nextEnvLog && (_envPlayer != mainPlayer || mainPlayer.Environment != _lastEnv || instance.Environment != _lastManagerEnv))
 			{
-				_lastEnv = instance.Environment;
-				Plugin.Log.LogDebug($"[Acoustics] environment -> {_lastEnv}");
+				_nextEnvLog = Time.unscaledTime + 1f;
+				try
+				{
+					Vector3 position = mainPlayer.Transform.Original.position;
+					IndoorTrigger trigger = instance.TryFindTriggerByPos(position);
+					ISpatialAudioRoom room = MonoBehaviourSingleton<SpatialAudioSystem>.Instantiated && SpatialAudioSystem.Initialized
+						? MonoBehaviourSingleton<SpatialAudioSystem>.Instance.ListenerCurrentRoom : null;
+					_lastEnv = mainPlayer.Environment;
+					_lastManagerEnv = instance.Environment;
+					_envPlayer = mainPlayer;
+					Plugin.Log.LogInfo($"[Acoustics] player env -> {_lastEnv} at ({position.x:F1},{position.y:F1},{position.z:F1}) trigger='{(trigger ? trigger.name : "none")}' room='{room?.Name ?? "none"}' manager={_lastManagerEnv}");
+				}
+				catch (Exception ex) { Plugin.Log.LogDebug("[Acoustics] player environment diagnostic failed: " + ex.Message); }
 			}
 		}
 		if ((_driveTick & 3) != 0)

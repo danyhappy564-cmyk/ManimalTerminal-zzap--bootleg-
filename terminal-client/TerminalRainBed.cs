@@ -82,6 +82,7 @@ internal sealed class TerminalRainBed : MonoBehaviour
 	private float _candidateSince;
 
 	private AmbientAudioSystem _ambientSystem;
+	private PrecipitationAmbientBlender[] _configuredBlenders;
 
 	internal static bool Active
 	{
@@ -149,6 +150,8 @@ internal sealed class TerminalRainBed : MonoBehaviour
 
 	private void Configure(PrecipitationAmbientBlender[] blenders)
 	{
+		if (ReferenceEquals(_configuredBlenders, blenders)) return;
+		_configuredBlenders = blenders;
 		_outdoorProfile = TerminalRainAudio.ReadBlendProfile(blenders, EnvironmentType.Outdoor);
 		_indoorProfile = TerminalRainAudio.ReadBlendProfile(blenders, EnvironmentType.Indoor);
 	}

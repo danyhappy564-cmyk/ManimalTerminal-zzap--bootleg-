@@ -99,6 +99,7 @@ internal static class TerminalBotFixes
 				return true;
 			}
 			BotOwner b = __instance;
+			using var activationScope = TerminalTickProfiler.Measure("BotFix.Activation");
 			int failed = 0;
 			Step("VoxelesPersonalData", () =>
 			{
@@ -310,6 +311,7 @@ internal static class TerminalBotFixes
 			{
 				try
 				{
+					using var stepScope = TerminalTickProfiler.Measure(name);
 					a();
 				}
 				catch (Exception arg)

@@ -20,7 +20,7 @@ internal static class TerminalTickProfiler
 
 		internal readonly FrameSample[] Samples = new FrameSample[4];
 
-		internal void Add(int frame, double ms)
+		internal void Add(int frame, double ms, long allocatedBytes)
 		{
 			int num = frame % 4;
 			if (num < 0)
@@ -33,9 +33,11 @@ internal static class TerminalTickProfiler
 				reference.Frame = frame;
 				reference.TotalMs = 0.0;
 				reference.Calls = 0;
+				reference.AllocatedBytes = 0;
 			}
 			reference.TotalMs += ms;
 			reference.Calls++;
+			reference.AllocatedBytes += allocatedBytes;
 			EmaMs = EmaMs * 0.95 + ms * 0.05;
 			LastMs = ms;
 			LastSampleFrame = frame;
@@ -54,7 +56,7 @@ internal static class TerminalTickProfiler
 				cost = default;
 				return false;
 			}
-			cost = new FrameCost(frameSample.TotalMs, frameSample.Calls);
+			cost = new FrameCost(frameSample.TotalMs, frameSample.Calls, frameSample.AllocatedBytes);
 			return true;
 		}
 
@@ -75,6 +77,7 @@ internal static class TerminalTickProfiler
 		internal double TotalMs;
 
 		internal int Calls;
+		internal long AllocatedBytes;
 	}
 
 	private readonly struct FrameCost
@@ -82,11 +85,13 @@ internal static class TerminalTickProfiler
 		internal readonly double TotalMs;
 
 		internal readonly int Calls;
+		internal readonly long AllocatedBytes;
 
-		internal FrameCost(double totalMs, int calls)
+		internal FrameCost(double totalMs, int calls, long allocatedBytes)
 		{
 			TotalMs = totalMs;
 			Calls = calls;
+			AllocatedBytes = allocatedBytes;
 		}
 	}
 
@@ -110,21 +115,33 @@ internal static class TerminalTickProfiler
 		private readonly long _started;
 
 		private readonly int _frame;
+		private readonly long _allocated;
 
 		internal Scope(string name)
 		{
 			_name = name;
 			_started = Stopwatch.GetTimestamp();
 			_frame = Time.frameCount;
+			_allocated = AllocatedBytes();
 		}
 
 		public void Dispose()
 		{
 			if (!string.IsNullOrEmpty(_name))
 			{
-				Add(_name, Stopwatch.GetTimestamp() - _started, _frame);
+				Add(_name, Stopwatch.GetTimestamp() - _started, _frame, Math.Max(0L, AllocatedBytes() - _allocated));
 			}
 		}
+	}
+
+	// zzap: Mono builds without this icall throw; measuring must never break a hook.
+	private static bool _allocUnavailable;
+
+	private static long AllocatedBytes()
+	{
+		if (_allocUnavailable) return 0L;
+		try { return GC.GetAllocatedBytesForCurrentThread(); }
+		catch { _allocUnavailable = true; return 0L; }
 	}
 
 	private const int FrameHistoryLength = 4;
@@ -151,7 +168,7 @@ internal static class TerminalTickProfiler
 		Add(name, elapsedTicks, Time.frameCount);
 	}
 
-	private static void Add(string name, long elapsedTicks, int frame)
+	private static void Add(string name, long elapsedTicks, int frame, long allocatedBytes = 0)
 	{
 		if (!string.IsNullOrEmpty(name))
 		{
@@ -161,22 +178,22 @@ internal static class TerminalTickProfiler
 				Entries[name] = value;
 			}
 			double num = (double)elapsedTicks * TickToMs;
-			value.Add(frame, num);
-			if (num >= 100.0)
+			value.Add(frame, num, allocatedBytes);
+			if (num >= 100.0 || allocatedBytes >= 1048576)
 			{
-				LogSlowScope(name, frame, num);
+				LogSlowScope(name, frame, num, allocatedBytes);
 			}
 		}
 	}
 
-	private static void LogSlowScope(string name, int frame, double ms)
+	private static void LogSlowScope(string name, int frame, double ms, long allocatedBytes)
 	{
 		if (!LastSlowLogFrame.TryGetValue(name, out var value) || frame - value >= 30 || ms >= 1000.0)
 		{
 			LastSlowLogFrame[name] = frame;
 			try
 			{
-				Plugin.Log.LogWarning($"[PerfScope] frame={frame} name={name} elapsed={ms:F1}ms");
+				Plugin.Log.LogWarning($"[PerfScope] frame={frame} name={name} elapsed={ms:F1}ms allocKB={allocatedBytes / 1024.0:F1} (inclusive)");
 			}
 			catch
 			{
@@ -236,7 +253,9 @@ internal static class TerminalTickProfiler
 			stringBuilder.Append(' ').Append(namedFrameCost.Name).Append(" totalMs=")
 				.Append(namedFrameCost.Cost.TotalMs.ToString("F1"))
 				.Append(" calls=")
-				.Append(namedFrameCost.Cost.Calls);
+				.Append(namedFrameCost.Cost.Calls)
+				.Append(" allocKB=")
+				.Append((namedFrameCost.Cost.AllocatedBytes / 1024.0).ToString("F1"));
 		}
 		return stringBuilder.ToString();
 	}

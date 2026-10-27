@@ -109,6 +109,7 @@ internal static class TerminalShaderRebind
 
 	internal static void RebindNow()
 	{
+		using var scope = TerminalTickProfiler.Measure("Shaders.RebindNow");
 		int rebound = 0;
 		int skipped = 0;
 		HashSet<Material> hashSet = new HashSet<Material>();
@@ -126,6 +127,7 @@ internal static class TerminalShaderRebind
 	// everything else).
 	internal static void RebindNowUnder(Transform root)
 	{
+		using var scope = TerminalTickProfiler.Measure("Shaders.RebindNowUnder");
 		if (root == null)
 		{
 			return;
@@ -143,6 +145,7 @@ internal static class TerminalShaderRebind
 
 	internal static int RebindShadersUnder(Transform root)
 	{
+		using var scope = TerminalTickProfiler.Measure("Shaders.RebindShadersUnder");
 		if (root == null)
 		{
 			return 0;

@@ -129,6 +129,7 @@ internal static class TerminalCrewJobs
 
 	internal static void NoteEvent(string name)
 	{
+		using var scope = TerminalTickProfiler.Measure("Crew.NoteEvent");
 		TerminalPopulationDirector.NoteProgressEvent(name);
 		_eventAt = Time.time;
 		Plugin.Log.LogDebug($"[CrewLayer] tier event '{name}' noted — bots spawning in the next {180f:0}s push the players");
@@ -166,6 +167,7 @@ internal static class TerminalCrewJobs
 
 	internal static void OnBotCreated(BotOwner bot)
 	{
+		using var scope = TerminalTickProfiler.Measure("Crew.OnBotCreated");
 		try
 		{
 			if (TerminalGate.On && Plugin.EventWavesPush.Value && (object)bot != null && bot.ProfileId != null && (!(bot.GetPlayer != null) || !bot.GetPlayer.IsYourPlayer) && (bot.Profile?.Info?.Settings?.Role.ToString() ?? "").IndexOf("blackdiv", StringComparison.OrdinalIgnoreCase) < 0 && !(_eventAt < 0f) && !(Time.time - _eventAt > 180f))
@@ -498,6 +500,7 @@ internal static class TerminalCrewJobs
 		}
 		if (!_armoryLooked)
 		{
+			using var scope = TerminalTickProfiler.Measure("Crew.ArmoryLookup");
 			_armoryLooked = true;
 			try
 			{

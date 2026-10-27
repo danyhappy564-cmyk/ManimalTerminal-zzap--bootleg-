@@ -34,6 +34,16 @@ internal static class TerminalRainAudio
 	private static float _nextStageProbeAt;
 
 	private static PrecipitationAmbientBlender[] _raidBlenders = new PrecipitationAmbientBlender[0];
+	private static readonly List<PrecipitationAmbientBlender> RegisteredBlenders = new List<PrecipitationAmbientBlender>(4);
+
+	// Acoustics already has these components while rebuilding the ambient graph.
+	// An empty catalog must not trigger a whole-scene search every second.
+	internal static void RegisterBlender(PrecipitationAmbientBlender blender)
+	{
+		if (!blender || RegisteredBlenders.Contains(blender)) return;
+		RegisteredBlenders.Add(blender);
+		_raidBlenders = RegisteredBlenders.ToArray();
+	}
 
 	private static readonly Dictionary<AudioSource, bool> NativeMuteStates = new Dictionary<AudioSource, bool>();
 
@@ -66,6 +76,7 @@ internal static class TerminalRainAudio
 	internal static void ReleaseAfterRaid()
 	{
 		_nativeActive = false;
+		RegisteredBlenders.Clear();
 		_raidBlenders = new PrecipitationAmbientBlender[0];
 		NativeMuteStates.Clear();
 		TerminalRainBed.ResetForRaid();
@@ -74,6 +85,7 @@ internal static class TerminalRainAudio
 	internal static void ResetForRaid()
 	{
 		_nativeActive = false;
+		RegisteredBlenders.Clear();
 		_nextStageProbeAt = 0f;
 		_raidBlenders = new PrecipitationAmbientBlender[0];
 		RestoreNativeSources();
@@ -89,9 +101,17 @@ internal static class TerminalRainAudio
 		}
 		_nextStageProbeAt = Time.unscaledTime + 1f;
 		AmbientAudioSystem ambientAudioSystem = (MonoBehaviourSingleton<AmbientAudioSystem>.Instantiated ? MonoBehaviourSingleton<AmbientAudioSystem>.Instance : null);
-		if (_raidBlenders.Length == 0 || ValueEnumerableExtensions.Any<PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(_raidBlenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender blender) => !blender)))
+		using (TerminalTickProfiler.Measure("RainAud.ResolveBlenders"))
 		{
-			_raidBlenders = UnityEngine.Object.FindObjectsOfType<PrecipitationAmbientBlender>(includeInactive: true);
+			bool removed = false;
+			for (int i = RegisteredBlenders.Count - 1; i >= 0; i--)
+				if (!RegisteredBlenders[i]) { RegisteredBlenders.RemoveAt(i); removed = true; }
+			if (removed) _raidBlenders = RegisteredBlenders.ToArray();
+			// Also covers an already initialized native system, without traversing
+			// the scene hierarchy before our reconstructed components exist.
+			if (ambientAudioSystem != null && SoundBlendersField?.GetValue(ambientAudioSystem) is ISoundBlender[] nativeBlenders)
+				for (int i = 0; i < nativeBlenders.Length; i++)
+					if (nativeBlenders[i] is PrecipitationAmbientBlender blender) RegisterBlender(blender);
 		}
 		PrecipitationAmbientBlender[] raidBlenders = _raidBlenders;
 		if (ambientAudioSystem == null && raidBlenders.Length == 0)
@@ -130,7 +150,7 @@ internal static class TerminalRainAudio
 		{
 			return false;
 		}
-		if (ValueEnumerableExtensions.Any<PrecipitationAmbientBlender>(ValueEnumerable.AsValueEnumerable<PrecipitationAmbientBlender>(blenders), (Func<PrecipitationAmbientBlender, bool>)((PrecipitationAmbientBlender precipitationAmbientBlender) => !precipitationAmbientBlender)) || !HasFullCatalog(sys.AmbientSoundData))
+		if (!HasFullCatalog(sys.AmbientSoundData))
 		{
 			return false;
 		}
@@ -148,7 +168,10 @@ internal static class TerminalRainAudio
 		AudioMixerGroup audioMixerGroup2 = null;
 		foreach (PrecipitationAmbientBlender blender in blenders)
 		{
-			if (!ValueEnumerableExtensions.Any<ISoundBlender>(ValueEnumerable.AsValueEnumerable<ISoundBlender>(array), (Func<ISoundBlender, bool>)((ISoundBlender item) => item == blender)) || !blender.isActiveAndEnabled || !(bool)InitializedField.GetValue(blender) || AmbientDataField.GetValue(blender) != sys.AmbientSoundData || !blender._outputMixerGroup || blender._outputMixerGroup.audioMixer != masterMixer || !NativeSourceReady(blender._precipitationSource, blender._outputMixerGroup) || !NativeSourceReady(blender._precipitationMixSource, blender._outputMixerGroup))
+			bool registered = false;
+			for (int i = 0; i < array.Length; i++)
+				if (ReferenceEquals(array[i], blender)) { registered = true; break; }
+			if (!blender || !registered || !blender.isActiveAndEnabled || !(bool)InitializedField.GetValue(blender) || AmbientDataField.GetValue(blender) != sys.AmbientSoundData || !blender._outputMixerGroup || blender._outputMixerGroup.audioMixer != masterMixer || !NativeSourceReady(blender._precipitationSource, blender._outputMixerGroup) || !NativeSourceReady(blender._precipitationMixSource, blender._outputMixerGroup))
 			{
 				return false;
 			}
@@ -195,11 +218,11 @@ internal static class TerminalRainAudio
 		}
 		try
 		{
-			return ValueEnumerableExtensions.All<ESeasonStatus>(ValueEnumerable.AsValueEnumerable<ESeasonStatus>(WarmSeasons), (Func<ESeasonStatus, bool>)((ESeasonStatus season) =>
-			{
-				//IL_0019: Unknown result type (might be due to invalid IL or missing references)
-				return ValueEnumerableExtensions.All<RainController.ERainIntensity>(ValueEnumerable.AsValueEnumerable<RainController.ERainIntensity>(RainTiers), (Func<RainController.ERainIntensity, bool>)((RainController.ERainIntensity tier) => data.TryGetPrecipitationClip(season, tier, EnvironmentType.Indoor, out var clip) && (bool)clip && data.TryGetPrecipitationClip(season, tier, EnvironmentType.Outdoor, out var clip2) && (bool)clip2));
-			}));
+			foreach (ESeasonStatus season in WarmSeasons)
+				foreach (RainController.ERainIntensity tier in RainTiers)
+					if (!data.TryGetPrecipitationClip(season, tier, EnvironmentType.Indoor, out var indoor) || !indoor
+						|| !data.TryGetPrecipitationClip(season, tier, EnvironmentType.Outdoor, out var outdoor) || !outdoor) return false;
+			return true;
 		}
 		catch
 		{

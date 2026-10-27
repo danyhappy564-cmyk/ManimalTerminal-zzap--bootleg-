@@ -94,6 +94,7 @@ public class TerminalTierEventLogic : AIPlaceInfoLogic
 	{
 		if (TerminalCoop.Authority && !(p == null) && (!OnlyPlayerNotAI || !p.IsAI) && (!TerminalCoop.Active || p.IsAI || _inside.Add(p.ProfileId)) && EnterRaise)
 		{
+			using var scope = TerminalTickProfiler.Measure("TierEvent.OnEnter");
 			FireCounts.TryGetValue(EventName, out var value);
 			value = (FireCounts[EventName] = value + 1);
 			Plugin.Log.LogWarning($"[AIPlaces] ENTER '{gameObject.name}' -> raising event '{EventName}' (fire #{value} this raid)");

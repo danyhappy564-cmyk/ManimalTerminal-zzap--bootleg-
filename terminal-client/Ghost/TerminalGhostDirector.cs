@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Comfort.Common;
 using EFT;
 using UnityEngine;
+using BlockReason = Manimal.Terminal.TerminalGhostPolicy.BlockReason;
 
 namespace Manimal.Terminal;
 
@@ -38,6 +39,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		internal bool Queued;
 		internal int CombatSlot = -1;
 		internal TerminalGhostCombat.Fight Fight;
+		internal BlockReason Blocked;
 	}
 
 	private static TerminalGhostDirector _instance;
@@ -50,6 +52,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private readonly Queue<Squad> _wakeQueue = new Queue<Squad>(128);
 	private readonly List<BotOwner> _retired = new List<BotOwner>(512);
 	private readonly TerminalGhostCombat _combat = new TerminalGhostCombat();
+	private readonly int[] _blocked = new int[(int)BlockReason.Count];
 	private int _cursor;
 	private float _nextScan;
 	private float _nextReport;
@@ -100,7 +103,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			var record = new BotRecord { Bot = bot, Squad = squad, CreatedAt = Time.time, Agent = bot.Brain?.Agent };
 			record.SpawnZone = bot.SpawnBotZone;
 			record.SpawnZoneName = record.SpawnZone ? record.SpawnZone.name : null;
-			if (bot.Profile?.Info?.Settings != null) TerminalRoles.IsRuaf(bot.Profile.Info.Settings.Role);
+			if (bot.Profile?.Info?.Settings != null)
+			{
+				TerminalRoles.IsRuaf(bot.Profile.Info.Settings.Role);
+				TerminalGhostPolicy.PrepareRole(bot.Profile.Info.Settings.Role);
+			}
 			_bots.Add(bot, record);
 			squad.Members.Add(record);
 			if (record.Agent != null) _agents[record.Agent] = record;
@@ -274,7 +281,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 
 	private void Evaluate(Squad squad)
 	{
-		if (squad.Dormant || squad.Queued || _humans.Count == 0 || TerminalGhostPolicy.Cutscene) return;
+		if (squad.Dormant) return;
+		squad.Blocked = BlockReason.None;
+		if (squad.Queued) { squad.Blocked = BlockReason.Block; return; }
+		if (_humans.Count == 0) { squad.Blocked = BlockReason.NoHuman; return; }
+		if (TerminalGhostPolicy.Cutscene) { squad.Blocked = BlockReason.Cutscene; return; }
 		float now = Time.time;
 		float sleep = Plugin.GhostSleepDistance.Value;
 		float sleepSq = sleep * sleep;
@@ -286,8 +297,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			if (!bot || bot.IsDead || bot.HealthController == null || !bot.HealthController.IsAlive) continue;
 			try
 			{
-				if (!_bots.TryGetValue(bot, out var record) || record.Squad != squad || now < record.BlockUntil
-					|| !TerminalGhostPolicy.CanSleep(record, now) || TerminalGhostPolicy.NearHuman(bot, _humans, sleepSq)) return;
+				if (!_bots.TryGetValue(bot, out var record) || record.Squad != squad) { squad.Blocked = BlockReason.Invalid; return; }
+				if (now < record.BlockUntil) { squad.Blocked = BlockReason.Block; return; }
+				squad.Blocked = TerminalGhostPolicy.SleepBlock(record, now);
+				if (squad.Blocked != BlockReason.None) return;
+				if (TerminalGhostPolicy.NearHuman(bot, _humans, sleepSq)) { squad.Blocked = BlockReason.Near; return; }
 				// Agent can be created after the birth callback; dictionary assignment reuses storage.
 				if (record.Agent != bot.Brain.Agent)
 				{
@@ -297,14 +311,14 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				}
 				any = true;
 			}
-			catch (Exception ex) { Fault(bot, ex); return; }
+			catch (Exception ex) { squad.Blocked = BlockReason.Block; Fault(bot, ex); return; }
 		}
-		if (!any) return;
+		if (!any) { squad.Blocked = BlockReason.Invalid; return; }
 		// A missed membership event must never put a bot from another group to sleep.
 		for (int i = 0; i < squad.Members.Count; i++)
 		{
 			BotOwner member = squad.Members[i].Bot;
-			if (member && !member.IsDead && (member.BotsGroup != squad.Group || !squad.Group.Contains(member))) return;
+			if (member && !member.IsDead && (member.BotsGroup != squad.Group || !squad.Group.Contains(member))) { squad.Blocked = BlockReason.Invalid; return; }
 		}
 		squad.Dormant = true;
 		for (int i = 0; i < squad.Members.Count; i++)
@@ -390,6 +404,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		TerminalGhostSain.ReadWindow(out double sainMs, out long sainSkipped);
 		if (Plugin.GhostDiagnostics.Value)
 		{
+			// One most recent first-block reason per awake squad, not per bot/scan attempt.
+			Array.Clear(_blocked, 0, _blocked.Length);
+			for (int i = 0; i < _groups.Count; i++)
+				if (!_groups[i].Dormant) _blocked[(int)_groups[i].Blocked]++;
 			int dormant = 0, total = 0;
 			foreach (BotRecord record in _bots.Values)
 			{
@@ -397,7 +415,8 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				total++;
 				if (record.Dormant) dormant++;
 			}
-			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)");
+			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)"
+				+ $", blocked: boss {_blocked[(int)BlockReason.Boss]}, crew {_blocked[(int)BlockReason.Crew]}, zone {_blocked[(int)BlockReason.Zone]}, stage {_blocked[(int)BlockReason.Stage]}, young {_blocked[(int)BlockReason.Young]}, damaged {_blocked[(int)BlockReason.Damaged]}, notActive {_blocked[(int)BlockReason.NotActive]}, hands {_blocked[(int)BlockReason.Hands]}, humanFight {_blocked[(int)BlockReason.HumanFight]}, sain {_blocked[(int)BlockReason.Sain]}, near {_blocked[(int)BlockReason.Near]}, block {_blocked[(int)BlockReason.Block]}, cutscene {_blocked[(int)BlockReason.Cutscene]}, civilian {_blocked[(int)BlockReason.Civilian]}, ruaf {_blocked[(int)BlockReason.Ruaf]}, placement {_blocked[(int)BlockReason.Placement]}, invalid {_blocked[(int)BlockReason.Invalid]}, noHuman {_blocked[(int)BlockReason.NoHuman]}");
 		}
 		_sleeps = _wakes = _samples = 0;
 		_combat.ResetShots();

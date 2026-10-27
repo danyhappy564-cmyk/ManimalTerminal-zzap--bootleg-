@@ -17,10 +17,50 @@ internal static class TerminalRuafNeutral
 	// or killed them, and could be looted for free (10/26). Drawing blood now marks the
 	// shooter as hostile to every RUAF group for the rest of the raid.
 	private static readonly HashSet<string> Provoked = new HashSet<string>();
+	private static readonly HashSet<BotsGroup> Inherited = new HashSet<BotsGroup>();
 
 	internal static void ResetForRaid()
 	{
 		Provoked.Clear();
+		Inherited.Clear();
+	}
+
+	// Reused by the population birth/reconciliation callbacks; a not-yet-ready
+	// group is retried, and a successful group gets each living traitor only once.
+	internal static void OnBotCreated(BotOwner bot)
+	{
+		try { InheritProvocation(bot); }
+		catch (Exception ex) { Plugin.Log.LogDebug("[RuafNeutral] new group inheritance failed: " + ex.Message); }
+	}
+
+	private static int InheritProvocation(BotOwner bot)
+	{
+		if (!TerminalGate.On || !Plugin.RuafNeutral.Value || Provoked.Count == 0 || !bot || bot.IsDead) return 0;
+		var settings = bot.Profile?.Info?.Settings;
+		BotsGroup group = bot.BotsGroup;
+		if (settings == null || !TerminalRoles.IsRuaf(settings.Role) || group == null || Inherited.Contains(group)) return 0;
+		using var scope = TerminalTickProfiler.Measure("Ruaf.InheritProvocation");
+		GameWorld world = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
+		List<Player> players = world?.AllAlivePlayersList;
+		if (players == null) return 0;
+		int added = 0;
+		bool ready = true;
+		for (int i = 0; i < players.Count; i++)
+		{
+			Player human = players[i];
+			if (!human || human.IsAI || human.HealthController?.IsAlive != true || human.ProfileId == null || !Provoked.Contains(human.ProfileId)) continue;
+			if (group.Enemies.ContainsKey(human)) continue;
+			try
+			{
+				group.AddEnemy(human, EBotEnemyCause.followGetHit);
+				if (group.Enemies.ContainsKey(human)) added++;
+				else ready = false;
+			}
+			catch { ready = false; }
+		}
+		if (ready) Inherited.Add(group);
+		if (added > 0) Plugin.Log.LogInfo($"[RuafNeutral] new RUAF group hostile to provoked human(s): role={TerminalRoles.Name(settings.Role)}, {added}");
+		return added;
 	}
 
 	[HarmonyPatch(typeof(BotsGroup), "AddEnemy")]
@@ -78,6 +118,7 @@ internal static class TerminalRuafNeutral
 				{
 					return;
 				}
+				using var scope = TerminalTickProfiler.Measure("Ruaf.ProvokedByDamage");
 				Player victim = __instance?.Player;
 				var victimSettings = victim?.Profile?.Info?.Settings;
 				if (victimSettings == null || !TerminalRoles.IsRuaf(victimSettings.Role))
@@ -85,12 +126,16 @@ internal static class TerminalRuafNeutral
 					return;
 				}
 				IPlayer attacker = damageInfo.Player?.iPlayer;
-				if (attacker == null || attacker.IsAI || attacker.ProfileId == null || !Provoked.Add(attacker.ProfileId))
+				if (attacker == null || attacker.IsAI || attacker.ProfileId == null)
 				{
 					return;
 				}
-				int groups = TurnRuafOn(attacker);
-				Plugin.Log.LogInfo($"[RuafNeutral] {attacker.Profile?.Nickname} drew RUAF blood ({TerminalRoles.Name(victimSettings.Role)}) — hostile to {groups} RUAF group(s) for the rest of the raid");
+				bool first = Provoked.Add(attacker.ProfileId);
+				// A repeated hit must also repair groups that a late spawn or another
+				// mod's loyalty handling left neutral. Existing enemy entries are reused.
+				Inherited.Clear();
+				int groups = TurnRuafOn();
+				if (first || groups > 0) Plugin.Log.LogInfo($"[RuafNeutral] {attacker.Profile?.Nickname} drew RUAF blood ({TerminalRoles.Name(victimSettings.Role)}) — hostile to {groups} RUAF group(s) for the rest of the raid");
 			}
 			catch (Exception ex)
 			{
@@ -98,7 +143,7 @@ internal static class TerminalRuafNeutral
 			}
 		}
 
-		private static int TurnRuafOn(IPlayer attacker)
+		private static int TurnRuafOn()
 		{
 			GameWorld world = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
 			List<Player> players = world?.AllAlivePlayersList;
@@ -106,7 +151,7 @@ internal static class TerminalRuafNeutral
 			{
 				return 0;
 			}
-			var done = new HashSet<BotsGroup>();
+			int changed = 0;
 			for (int i = 0; i < players.Count; i++)
 			{
 				Player p = players[i];
@@ -115,19 +160,9 @@ internal static class TerminalRuafNeutral
 				{
 					continue;
 				}
-				BotsGroup group = p.AIData?.BotOwner?.BotsGroup;
-				if (group != null && done.Add(group))
-				{
-					try
-					{
-						group.AddEnemy(attacker, EBotEnemyCause.followGetHit);
-					}
-					catch
-					{
-					}
-				}
+				if (InheritProvocation(p.AIData?.BotOwner) > 0) changed++;
 			}
-			return done.Count;
+			return changed;
 		}
 	}
 }
