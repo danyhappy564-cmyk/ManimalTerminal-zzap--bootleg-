@@ -1436,7 +1436,7 @@ internal static class TerminalPopulationDirector
 			try
 			{
 				BotOwner bot = entry.Bot;
-				TerminalGhostDirector.WakeNow(bot);
+				TerminalGhostDirector.WakeNow(bot, TerminalGhostDirector.WakeReason.Move);
 				if (!entry.Player.gameObject.activeSelf)
 				{
 					entry.Player.gameObject.SetActive(value: true);

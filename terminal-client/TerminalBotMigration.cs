@@ -164,7 +164,7 @@ internal static class TerminalBotMigration
 			reason = "unavailable";
 			return false;
 		}
-		TerminalGhostDirector.WakeNow(bot);
+		TerminalGhostDirector.WakeNow(bot, TerminalGhostDirector.WakeReason.Move);
 		if (!InFlight.Add(bot))
 		{
 			reason = "migration-in-flight";

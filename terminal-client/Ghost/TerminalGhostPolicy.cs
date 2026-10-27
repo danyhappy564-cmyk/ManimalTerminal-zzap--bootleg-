@@ -15,6 +15,13 @@ internal static class TerminalGhostPolicy
 		Sain, Near, Block, Cutscene, Civilian, Ruaf, Placement, Invalid, NoHuman, Type, Scope, Count
 	}
 
+	[Flags]
+	internal enum HandsReason
+	{
+		None = 0, Missing = 1, Interaction = 2, CannotInteract = 4,
+		SelectorMissing = 8, Changing = 16, MedicineMissing = 32, MedicineUsing = 64
+	}
+
 	private enum Kind { Scav, Goon, Boss, Cultist, Raider, Bloodhound, Ruaf, BlackDivision, Other }
 	private static readonly Dictionary<WildSpawnType, Kind> Roles = new Dictionary<WildSpawnType, Kind>();
 
@@ -88,6 +95,8 @@ internal static class TerminalGhostPolicy
 
 	internal static BlockReason SleepBlock(TerminalGhostDirector.BotRecord record, float now)
 	{
+		HandsReason previousHands = record.HandsState;
+		record.HandsState = HandsReason.None;
 		BotOwner bot = record.Bot;
 		if (!bot || bot.IsDead || !bot.GetPlayer || bot.HealthController == null || !bot.HealthController.IsAlive) return BlockReason.Invalid;
 		BlockReason protection = ProtectionBlock(record);
@@ -97,8 +106,22 @@ internal static class TerminalGhostPolicy
 		if (bot.BotState != EBotState.Active || !bot.gameObject.activeInHierarchy || !bot.GetPlayer.gameObject.activeInHierarchy
 			|| bot.Memory == null || bot.Brain?.Agent == null || bot.Mover == null || bot.EnemiesController == null) return BlockReason.NotActive;
 		var hands = bot.GetPlayer.HandsController;
-		if (hands == null || hands.IsInInteractionStrictCheck() || !hands.CanInteract()
-			|| bot.WeaponManager?.Selector == null || bot.WeaponManager.Selector.IsChanging || bot.Medecine == null || bot.Medecine.Using) return BlockReason.Hands;
+		HandsReason busy = HandsReason.None;
+		if (hands == null) busy |= HandsReason.Missing;
+		else
+		{
+			if (hands.IsInInteractionStrictCheck()) busy |= HandsReason.Interaction;
+			if (!hands.CanInteract()) busy |= HandsReason.CannotInteract;
+		}
+		if (bot.WeaponManager?.Selector == null) busy |= HandsReason.SelectorMissing;
+		else if (bot.WeaponManager.Selector.IsChanging) busy |= HandsReason.Changing;
+		if (bot.Medecine == null) busy |= HandsReason.MedicineMissing;
+		else if (bot.Medecine.Using) busy |= HandsReason.MedicineUsing;
+		record.HandsState = busy;
+		if (busy != previousHands) record.HandsSince = now;
+		// A timer cannot distinguish a stuck animator from a real reload/heal.
+		// Keep the guard; the report splits sustained blockers after 20 seconds.
+		if (busy != HandsReason.None) return BlockReason.Hands;
 		// Only current human combat blocks entry. Bot-vs-bot combat may pause.
 		int enemies = 0;
 		foreach (var pair in bot.EnemiesController.EnemyInfos)

@@ -109,6 +109,8 @@ internal sealed class TerminalGhostCombat
 			_pairsLeft--;
 			if (++_scanB >= _count) { _scanA++; _scanB = _scanA + 1; }
 			if (a.Waking || b.Waking || a.Queued || b.Queued) continue;
+			if (a.CombatSlot < 0 || b.CombatSlot < 0
+				|| now < _cooldowns[a.CombatSlot * MaxSquads + b.CombatSlot]) continue;
 			if (a.Dormant != b.Dormant)
 			{
 				var dormant = a.Dormant ? a : b;
@@ -118,7 +120,9 @@ internal sealed class TerminalGhostCombat
 					if (!InEncounterRange(dormant, awake)) continue;
 					if (!TerminalGhostDirector.TryGhostEncounter(dormant, awake))
 					{
-						TerminalGhostDirector.WakeSquad(dormant, false);
+						// Proximity is not a target selection. A failed conversion must
+						// leave the hidden squad asleep; AllowTarget owns real threats.
+						Cooldown(a, b, now + RetryCooldown);
 						continue;
 					}
 				}
@@ -517,8 +521,8 @@ internal sealed class TerminalGhostCombat
 		if (a?.Fight != null) End(a.Fight, now, "exception");
 		if (b?.Fight != null) End(b.Fight, now, "exception");
 		if (a != null && b != null) Cooldown(a, b, now + (started ? FightCooldown : RetryCooldown));
-		TerminalGhostDirector.WakeSquad(a);
-		TerminalGhostDirector.WakeSquad(b);
+		TerminalGhostDirector.WakeSquad(a, TerminalGhostDirector.WakeReason.Fault);
+		TerminalGhostDirector.WakeSquad(b, TerminalGhostDirector.WakeReason.Fault);
 		Plugin.Log.LogWarning("[GhostFight] cancelled; both squads restored: " + ex.Message);
 	}
 }

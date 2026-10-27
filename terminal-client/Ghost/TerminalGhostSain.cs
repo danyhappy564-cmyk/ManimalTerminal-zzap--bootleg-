@@ -274,7 +274,7 @@ internal static class TerminalGhostSain
 		catch (Exception ex)
 		{
 			Fault(hook, bot, ex);
-			TerminalGhostDirector.WakeNow(target);
+			TerminalGhostDirector.WakeNow(target, TerminalGhostDirector.WakeReason.Fault);
 			return false;
 		}
 	}

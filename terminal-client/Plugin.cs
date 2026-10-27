@@ -99,6 +99,7 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<bool> GhostMode;
 	internal static ConfigEntry<float> GhostSleepDistance;
 	internal static ConfigEntry<float> GhostWakeDistance;
+	internal static ConfigEntry<float> GhostResleepDelay;
 	internal static ConfigEntry<bool> GhostBrainThrottle;
 	internal static ConfigEntry<bool> GhostSainThrottle;
 	internal static ConfigEntry<bool> GhostDiagnostics;
@@ -332,6 +333,7 @@ public class Plugin : BaseUnityPlugin
 		GhostMode = TerminalGhostSettings.Legacy(Config, "GhostMode", false, "유령 모드 켜기. 먼 분대의 AI를 쉬게 합니다. Fika 설치 시 작동하지 않습니다.");
 		GhostSleepDistance = TerminalGhostSettings.Bind(Config, "GhostSleepDistance", 260f, "잠드는 거리(m). 살아 있는 분대원 전원이 모든 사람에게서 이 거리 밖이어야 합니다.", new AcceptableValueRange<float>(50f, 1500f));
 		GhostWakeDistance = TerminalGhostSettings.Bind(Config, "GhostWakeDistance", 210f, "깨는 거리(m). 잠드는 거리보다 작게 적용됩니다. 50m 이내 위협은 지연 없이 전원 기상합니다.", new AcceptableValueRange<float>(10f, 1499f));
+		GhostResleepDelay = TerminalGhostSettings.Bind(Config, "GhostResleepDelay", 20f, "기상 후 다시 잠들기까지의 최소 대기(초). 일반 기상·피격·50m 근접 모두 적용합니다.", new AcceptableValueRange<float>(2f, 120f));
 		GhostBrainThrottle = TerminalGhostSettings.Legacy(Config, "GhostBrainThrottle", true, "휴면 AI 정지. 끄면 모든 유령을 복구하고 새 휴면을 중단합니다.");
 		GhostSainThrottle = TerminalGhostSettings.Legacy(Config, "GhostSainThrottle", true, "휴면 봇의 SAIN 갱신을 생략합니다. 끈 뒤에도 진행 중인 복구는 마칩니다.");
 		GhostDiagnostics = TerminalGhostSettings.Legacy(Config, "GhostDiagnostics", true, "30초마다 휴면·이동·전환·기상·SAIN 비용을 기록합니다.");
@@ -351,7 +353,7 @@ public class Plugin : BaseUnityPlugin
 		GhostBlackDivision = TerminalGhostSettings.Bind(Config, "GhostBlackDivision", true, "휴면 대상: 블랙 디비전.");
 		GhostMovement = TerminalGhostSettings.Bind(Config, "GhostMovement", true, "숨긴 채 크루 돌진·추격·포위 목적지로 이동합니다. 경비·RUAF·일반 순찰은 제자리입니다.");
 		GhostMovementSpeed = TerminalGhostSettings.Bind(Config, "GhostMovementSpeed", 5f, "유령 이동 속도(m/s). 0.5초 간격으로 경로를 따라 이동합니다.", new AcceptableValueRange<float>(0.5f, 8f));
-		GhostSleepAwake = TerminalGhostSettings.Bind(Config, "GhostSleepAwake", true, "유령이 깨어 있는 적대 분대를 만나면 안전 조건을 만족하는 그 분대도 유령으로 전환합니다. 실패하면 유령을 깨웁니다.");
+		GhostSleepAwake = TerminalGhostSettings.Bind(Config, "GhostSleepAwake", true, "유령이 깨어 있는 적대 분대를 만나면 안전 조건을 만족하는 그 분대도 유령으로 전환합니다. 실패하면 빈도 설정에 따른 재시도 대기만 적용하고, 실제 표적 선택 시 기상합니다.");
 		GhostEncounterDistance = TerminalGhostSettings.Bind(Config, "GhostEncounterDistance", 85f, "유령과 깨어 있는 적대 분대의 만남 거리(m).", new AcceptableValueRange<float>(10f, 150f));
 		GhostWakeDelayMs = TerminalGhostSettings.Bind(Config, "GhostWakeDelayMs", 50, "일반 기상 시 봇 복구 사이의 전역 지연(ms). 프레임마다 최대 1명입니다. 피격·50m 근접은 전원 즉시 복구합니다. 0이면 지연을 끕니다.", new AcceptableValueRange<int>(0, 500));
 		GhostScopeWake = TerminalGhostSettings.Bind(Config, "GhostScopeWake", true, "광학 조준(ADS·1배 초과) 시 시선 원뿔 안의 유령을 먼 거리에서도 깨웁니다.");
@@ -556,6 +558,9 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalSpawnGate.Patch_BypassNativeCapForAdmittedScavs));
 		Patch(typeof(TerminalSpawnGate.Patch_FinalLifetimeCap));
 		Patch(typeof(TerminalPopulationDirector.Patch_Attach));
+		Patch(typeof(Manimal.Terminal.Civilian.CivilianTeleportProbe.Patch_MoverPosition));
+		Patch(typeof(Manimal.Terminal.Civilian.CivilianTeleportProbe.Patch_PlayerPosition));
+		Patch(typeof(Manimal.Terminal.Civilian.CivilianTeleportProbe.Patch_MovementPosition));
 		Patch(typeof(TerminalGhostPatches.Patch_Attach));
 		Patch(typeof(TerminalGhostPatches.Patch_NewRaid));
 		Patch(typeof(TerminalGhostPatches.Patch_EndRaid));

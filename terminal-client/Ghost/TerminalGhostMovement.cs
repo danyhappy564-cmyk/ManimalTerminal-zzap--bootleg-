@@ -98,7 +98,7 @@ internal static class TerminalGhostMovement
 		if (!squad.Dormant || squad.Waking) { Stop(squad); return; }
 		if (!Plugin.GhostMovement.Value)
 		{
-			if (state.Pending || state.Moving) TerminalGhostDirector.WakeSquad(squad);
+			if (state.Pending || state.Moving) TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
 			return;
 		}
 		if (state.Leader == null)
@@ -112,14 +112,14 @@ internal static class TerminalGhostMovement
 		if (!leader || leader.IsDead || !state.Leader.Dormant
 			|| !TerminalCrewJobs.ByProfile.TryGetValue(leader.ProfileId, out var current) || !ReferenceEquals(current, state.Order))
 		{
-			TerminalGhostDirector.WakeSquad(squad);
+			TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
 			return;
 		}
 		float now = Time.time;
 		if (!Destination(leader, current, humans, out Vector3 goal, out bool hunt)) { Stop(squad); return; }
 		if (state.Moving && !hunt && (goal - state.Goal).sqrMagnitude > 1f)
 		{
-			TerminalGhostDirector.WakeSquad(squad); // changed fixed destination belongs to the live crew layer
+			TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move); // changed fixed destination belongs to the live crew layer
 			return;
 		}
 		if (squad.Fight != null) { state.LastStep = now; return; }
@@ -173,13 +173,26 @@ internal static class TerminalGhostMovement
 				if (++state.SampleFailures >= 5) GiveBack(squad, "five sample failures");
 				return;
 			}
-			if (Mathf.Abs(hit.position.y - desired.y) > 1.5f
-				|| NavMesh.Raycast(bot.Position, hit.position, out _, NavMesh.AllAreas)
-				|| Physics.Linecast(bot.Position + Vector3.up, hit.position + Vector3.up,
-					LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore)
-				|| CrossesIndoor(bot.Position, hit.position))
+			if (Mathf.Abs(hit.position.y - desired.y) > 1.5f)
 			{
-				GiveBack(squad, "blocked or indoor segment");
+				GiveBack(squad, $"height delta={Mathf.Abs(hit.position.y - desired.y):F2}m");
+				return;
+			}
+			if (NavMesh.Raycast(bot.Position, hit.position, out _, NavMesh.AllAreas))
+			{
+				GiveBack(squad, "NavMesh.Raycast");
+				return;
+			}
+			// Already one metre above BOTH endpoints; keep the obstruction guard.
+			if (Physics.Linecast(bot.Position + Vector3.up, hit.position + Vector3.up, out RaycastHit obstacle,
+				LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore))
+			{
+				GiveBack(squad, $"Linecast@1m collider={obstacle.collider?.name} layer={obstacle.collider?.gameObject.layer} point={obstacle.point}");
+				return;
+			}
+			if (CrossesIndoor(bot.Position, hit.position, out bool sampleLimit))
+			{
+				GiveBack(squad, sampleLimit ? "CrossesIndoor sample limit (>12m)" : "CrossesIndoor volume");
 				return;
 			}
 			// This check also covers a compacted follower offset crossing the wake boundary.
@@ -194,11 +207,11 @@ internal static class TerminalGhostMovement
 			BotOwner bot = record.Bot;
 			if (!bot || bot.IsDead || !record.Dormant) continue;
 			bot.Mover.Teleport(state.Destinations[i]);
-			if (!squad.Dormant || squad.Members.Count != memberCount) { TerminalGhostDirector.WakeSquad(squad); return; }
+			if (!squad.Dormant || squad.Members.Count != memberCount) { TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move); return; }
 			bot.GetPlayer.Transform.Original.position = state.Destinations[i];
 			// Do not call PlacementChanged: the spawn zone and placement ownership have
 			// not changed. Native teleport must not silently change either one.
-			if (bot.SpawnBotZone != record.SpawnZone) { TerminalGhostDirector.WakeSquad(squad); return; }
+			if (bot.SpawnBotZone != record.SpawnZone) { TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move); return; }
 			record.Body.Enforce();
 		}
 		state.Corner = corner;
@@ -207,7 +220,7 @@ internal static class TerminalGhostMovement
 
 	private static void GiveBack(TerminalGhostDirector.Squad squad, string reason)
 	{
-		TerminalGhostDirector.WakeSquad(squad);
+		TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
 		// Give live navigation time to leave the blocked/indoor segment, rather
 		// than repeatedly hiding and waking at the same bad path every two seconds.
 		for (int i = 0; i < squad.Members.Count && i < TerminalGhostDirector.MaxMembers; i++)
@@ -215,14 +228,15 @@ internal static class TerminalGhostMovement
 		if (Plugin.GhostDiagnostics.Value) Plugin.Log.LogInfo("[GhostMove] live navigation for 30s: " + reason);
 	}
 
-	private static bool CrossesIndoor(Vector3 from, Vector3 to)
+	private static bool CrossesIndoor(Vector3 from, Vector3 to, out bool sampleLimit)
 	{
+		sampleLimit = false;
 		EnvironmentManager environment = EnvironmentManager.Instance;
 		if (!environment) return false;
 		// Include the origin and sample at no more than 1m intervals. Long formation
 		// jumps are rejected rather than doing an unbounded volume query.
 		int samples = Mathf.CeilToInt(Vector3.Distance(from, to));
-		if (samples > 12) return true;
+		if (samples > 12) { sampleLimit = true; return true; }
 		for (int i = 0; i <= samples && i <= 12; i++)
 			if (environment.TryFindTriggerByPos(Vector3.Lerp(from, to, samples == 0 ? 0f : (float)i / samples))) return true;
 		return false;

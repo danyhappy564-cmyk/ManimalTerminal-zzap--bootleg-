@@ -39,7 +39,7 @@ internal static class TerminalRaidCleanup
 		if (!Release("acoustics", () => TerminalAcoustics.ReleaseAfterRaid(out clips, out ambient))) failed++;
 		if (!Release("ambient effects", () => TerminalAmbientEffectsAssets.Reset(immediate: false))) failed++;
 		if (!Release("ambient seasons", () => TerminalAmbientSeasonAssets.ResetForRaid(immediate: false))) failed++;
-		Release("civilians", () => { CivilianFleeState.ClearAll(); CivilianUnstickHelper.ClearAll(); CivilianMeleeEnforcer.ClearAll(); });
+		Release("civilians", () => { CivilianFleeState.ClearAll(); CivilianUnstickHelper.ClearAll(); CivilianMeleeEnforcer.ClearAll(); CivilianTeleportProbe.ResetForRaid(); });
 		Release("crew", TerminalCrewJobs.Reset);
 		Release("RUAF neutrality", TerminalRuafNeutral.ResetForRaid);
 		Release("spawn gate", TerminalSpawnGate.ResetForRaid);

@@ -24,7 +24,6 @@ internal static class TerminalGhostPatches
 	private static Func<object, BotOwner> _activationOwner;
 	private static Func<object, object> _controller;
 	private static Func<object, EnemyInfo> _enemyInfo;
-	private static Func<object, bool> _humanEnemy;
 	private static Func<object, bool> _humanSight;
 	private static Func<object, bool> _sainActive;
 	private static Action<object> _clearEnemy;
@@ -60,7 +59,6 @@ internal static class TerminalGhostPatches
 			_activationOwner = Getter<BotOwner>(_sainActivation.DeclaringType, "BotOwner");
 			_controller = Getter<object>(_sainComponent, "EnemyController");
 			_enemyInfo = Getter<EnemyInfo>(_sainGoal.GetParameters()[0].ParameterType, "EnemyInfo");
-			_humanEnemy = Getter<bool>(_sainGoal.DeclaringType, "ActiveHumanEnemy");
 			_humanSight = Getter<bool>(_sainGoal.DeclaringType, "HumanEnemyInLineofSight");
 			_sainActive = Getter<bool>(_sainActivation.DeclaringType, "BotActive");
 			var instance = Expression.Parameter(typeof(object), "instance");
@@ -167,7 +165,10 @@ internal static class TerminalGhostPatches
 			if (component == null) return false; // activation not finished; retry next scan
 			record.SainController = _controller(component);
 		}
-		return record.SainController != null && !_humanEnemy(record.SainController) && !_humanSight(record.SainController);
+		// SAIN ActiveHumanEnemy means KnownEnemies contains a human, including
+		// sound-only knowledge. Native SleepBlock already guards recent visual
+		// combat, and TrySleep independently checks every living human's distance.
+		return record.SainController != null && !_humanSight(record.SainController);
 	}
 
 	internal static void ClearSain(TerminalGhostDirector.BotRecord record)
@@ -214,7 +215,12 @@ internal static class TerminalGhostPatches
 	internal static class Patch_NewRaid
 	{
 		[HarmonyPrefix, HarmonyPriority(Priority.First)]
-		private static void Prefix() { DetectFika(null); TerminalGhostDirector.ResetForRaid(); }
+		private static void Prefix()
+		{
+			DetectFika(null);
+			TerminalGhostDirector.ResetForRaid();
+			Manimal.Terminal.Civilian.CivilianTeleportProbe.ResetForRaid();
+		}
 	}
 
 	[HarmonyPatch(typeof(GameWorld), "Dispose")]
@@ -330,7 +336,7 @@ internal static class TerminalGhostPatches
 			// Combat restored its casualty BEFORE entering the normal Player damage
 			// pipeline. Keep that body visible without waking its remaining squad.
 			if (!TerminalGhostCombatDamage.IsSimulated(__instance))
-				TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner);
+				TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner, TerminalGhostDirector.WakeReason.Damage);
 		}
 		[HarmonyFinalizer]
 		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
