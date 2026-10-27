@@ -431,7 +431,7 @@ internal static class TerminalBotMigration
 			context.NewGroup.AddEnemy(player2, EBotEnemyCause.initCauseEnemy);
 			if (!context.NewGroup.Enemies.ContainsKey(player2))
 			{
-				Debug.LogError("Terminal bot migration skipped rejected enemy key");
+				Plugin.Log.LogDebug("[Migration] skipped rejected enemy key"); // zzap: expected for neutral/friendly groups (RUAF filter); Unity LogError stack capture spiked frames (10/28 errors.log x83)
 			}
 		}
 		oldEnemyKeys = ValueEnumerableExtensions.ToArray<FromEnumerable<IPlayer>, IPlayer>(ValueEnumerableExtensions.Where<FromEnumerable<IPlayer>, IPlayer>(ValueEnumerable.AsValueEnumerable<IPlayer>((IEnumerable<IPlayer>)context.NewGroup.Enemies.Keys), (Func<IPlayer, bool>)((IPlayer enemy) => enemy != null)));
@@ -440,7 +440,7 @@ internal static class TerminalBotMigration
 			context.NewGroup.AddEnemy(player3, EBotEnemyCause.initCauseEnemy);
 			if (!context.NewGroup.Enemies.TryGetValue(player3, out var value) || value == null)
 			{
-				Debug.LogError("Terminal bot migration skipped missing enemy info");
+				Plugin.Log.LogDebug("[Migration] skipped missing enemy info");
 			}
 			else if (!enemiesController.EnemyInfos.ContainsKey(player3))
 			{
