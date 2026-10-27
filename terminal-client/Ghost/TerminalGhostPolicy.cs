@@ -51,8 +51,12 @@ internal static class TerminalGhostPolicy
 		if (TerminalRoles.IsRuaf(settings.Role) && !Plugin.GhostRuaf.Value) return BlockReason.Ruaf;
 		if (IsBossRole(settings.Role)) return BlockReason.Boss;
 		if (TerminalCrewJobs.GhostHasPendingOrder(bot.ProfileId) || bot.PriorityAxeTarget?.AllPursuit == true) return BlockReason.Crew;
+		// zzap: only an active rush blocks sleep. Every Black Division bot holds a
+		// permanent Guard post and event scavs keep Job.Hunt after their 180s window,
+		// so blocking on any job kept both factions awake all raid (10/28 log: crew 7~8).
+		// Their layers resume from the same job record when the squad wakes.
 		if (TerminalCrewJobs.ByProfile.TryGetValue(bot.ProfileId, out var job) && job != null
-			&& (job.Job != TerminalCrewJobs.Job.None || job.RushTo.HasValue || job.RushUntil > Time.time)) return BlockReason.Crew;
+			&& job.Job != TerminalCrewJobs.Job.None && job.RushUntil > Time.time) return BlockReason.Crew;
 		if (bot.SpawnBotZone != record.SpawnZone) return BlockReason.Zone;
 		if (TerminalStageWait.OwnsVisibility(bot) || TerminalStageDirector.GhostShouldHold(record.SpawnZoneName)) return BlockReason.Stage;
 		if (TerminalBotMigration.IsInFlight(bot) || TerminalPopulationDirector.GhostPlacementBusy(bot)) return BlockReason.Placement;
