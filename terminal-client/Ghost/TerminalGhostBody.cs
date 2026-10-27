@@ -8,6 +8,7 @@ namespace Manimal.Terminal;
 // zzap: owns only the visibility flags captured by Ghost, never the player's GO.
 internal sealed class TerminalGhostBody
 {
+	private const int MaxRenderers = 512, MaxLights = 64;
 	private readonly List<Renderer> _renderers = new List<Renderer>(128);
 	private readonly List<bool> _renderOff = new List<bool>(128);
 	private readonly List<Light> _lights = new List<Light>(16);
@@ -34,19 +35,23 @@ internal sealed class TerminalGhostBody
 		if (!_owned || !root) return;
 		_scratchRenderers.Clear();
 		root.GetComponentsInChildren(true, _scratchRenderers);
-		for (int i = 0; i < _scratchRenderers.Count; i++)
+		if (_scratchRenderers.Count > MaxRenderers) throw new InvalidOperationException("Ghost renderer capture limit");
+		for (int i = 0; i < _scratchRenderers.Count && i < MaxRenderers; i++)
 		{
 			Renderer renderer = _scratchRenderers[i];
 			if (!renderer || _renderers.Contains(renderer)) continue;
+			if (_renderers.Count >= MaxRenderers) throw new InvalidOperationException("Ghost renderer ownership limit");
 			_renderers.Add(renderer);
 			_renderOff.Add(renderer.forceRenderingOff);
 		}
 		_scratchLights.Clear();
 		root.GetComponentsInChildren(true, _scratchLights);
-		for (int i = 0; i < _scratchLights.Count; i++)
+		if (_scratchLights.Count > MaxLights) throw new InvalidOperationException("Ghost light capture limit");
+		for (int i = 0; i < _scratchLights.Count && i < MaxLights; i++)
 		{
 			Light light = _scratchLights[i];
 			if (!light || _lights.Contains(light)) continue;
+			if (_lights.Count >= MaxLights) throw new InvalidOperationException("Ghost light ownership limit");
 			_lights.Add(light);
 			_lightEnabled.Add(light.enabled);
 		}
@@ -58,16 +63,16 @@ internal sealed class TerminalGhostBody
 		// Keep GO/colliders/health alive for real damage and death. enabled is also
 		// written by Terminal culling; forceRenderingOff leaves that owner intact.
 		// StageWait/recycler MUST wake Ghost before capturing/repairing these flags.
-		for (int i = 0; i < _renderers.Count; i++)
+		for (int i = 0; i < _renderers.Count && i < MaxRenderers; i++)
 			if (_renderers[i]) _renderers[i].forceRenderingOff = true;
-		for (int i = 0; i < _lights.Count; i++)
+		for (int i = 0; i < _lights.Count && i < MaxLights; i++)
 			if (_lights[i]) _lights[i].enabled = false;
 	}
 
 	internal void ReleaseWeapon(Transform root)
 	{
 		// Pool return must not carry our flags into another player's weapon.
-		for (int i = _renderers.Count - 1; i >= 0; i--)
+		for (int i = Math.Min(_renderers.Count, MaxRenderers) - 1; i >= 0; i--)
 		{
 			Renderer renderer = _renderers[i];
 			if (renderer && renderer.transform.IsChildOf(root))
@@ -77,7 +82,7 @@ internal sealed class TerminalGhostBody
 				_renderOff.RemoveAt(i);
 			}
 		}
-		for (int i = _lights.Count - 1; i >= 0; i--)
+		for (int i = Math.Min(_lights.Count, MaxLights) - 1; i >= 0; i--)
 		{
 			Light light = _lights[i];
 			if (light && light.transform.IsChildOf(root))
@@ -93,12 +98,12 @@ internal sealed class TerminalGhostBody
 	{
 		if (!_owned) return;
 		Exception failure = null;
-		for (int i = 0; i < _renderers.Count; i++)
+		for (int i = 0; i < _renderers.Count && i < MaxRenderers; i++)
 		{
 			try { if (_renderers[i]) _renderers[i].forceRenderingOff = _renderOff[i]; }
 			catch (Exception ex) { if (failure == null) failure = ex; }
 		}
-		for (int i = 0; i < _lights.Count; i++)
+		for (int i = 0; i < _lights.Count && i < MaxLights; i++)
 		{
 			try { if (_lights[i]) _lights[i].enabled = _lightEnabled[i]; }
 			catch (Exception ex) { if (failure == null) failure = ex; }

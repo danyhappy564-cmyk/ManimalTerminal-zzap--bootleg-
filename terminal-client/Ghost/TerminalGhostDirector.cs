@@ -11,6 +11,7 @@ namespace Manimal.Terminal;
 // zzap: raid-local registry, squad transitions and a bounded round-robin sleep scan.
 internal sealed class TerminalGhostDirector : MonoBehaviour
 {
+	internal const int MaxBots = 512, MaxSquads = 256, MaxMembers = 32, MaxHumans = 16;
 	internal sealed class BotRecord
 	{
 		internal BotOwner Bot;
@@ -28,6 +29,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		internal AICoreAgent<BotLogicDecision> Agent;
 		internal BotZone SpawnZone;
 		internal string SpawnZoneName;
+		internal Vector3 GhostOffset;
 		internal readonly TerminalGhostBody Body = new TerminalGhostBody();
 	}
 
@@ -37,6 +39,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		internal readonly List<BotRecord> Members = new List<BotRecord>(16);
 		internal bool Dormant;
 		internal bool Queued;
+		internal bool Waking;
+		internal BotOwner Observer;
+		internal int WakeCursor;
+		internal readonly TerminalGhostMovement.State Motion = new TerminalGhostMovement.State();
 		internal int CombatSlot = -1;
 		internal TerminalGhostCombat.Fight Fight;
 		internal BlockReason Blocked;
@@ -52,6 +58,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private readonly Queue<Squad> _wakeQueue = new Queue<Squad>(128);
 	private readonly List<BotOwner> _retired = new List<BotOwner>(512);
 	private readonly TerminalGhostCombat _combat = new TerminalGhostCombat();
+	private readonly TerminalGhostScope _scope = new TerminalGhostScope();
 	private readonly int[] _blocked = new int[(int)BlockReason.Count];
 	private int _cursor;
 	private float _nextScan;
@@ -60,6 +67,9 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private int _wakes;
 	private int _samples;
 	private int _sainWakePending;
+	private int _scopeCursor, _wakeCursor, _motionCursor;
+	private int _scopeWakes, _staggered, _ghostedAwake;
+	private float _nextMemberWake;
 	private double _sumMs;
 	private double _maxMs;
 	private double _pendingHookMs;
@@ -90,12 +100,20 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		_instance._listening = true;
 		// Existing births are rare at OnGameStarted; conservatively give them 15s.
 		if (_spawner._bots != null)
-			foreach (BotOwner bot in _spawner._bots.BotOwners) _instance.Register(bot);
+		{
+			int examined = 0;
+			foreach (BotOwner bot in _spawner._bots.BotOwners)
+			{
+				if (++examined > MaxBots) break;
+				_instance.Register(bot);
+			}
+		}
 	}
 
 	private void Register(BotOwner bot)
 	{
 		if (!bot || bot.IsDead || bot.BotsGroup == null || _bots.ContainsKey(bot)) return;
+		if (_bots.Count >= MaxBots || (!_byGroup.ContainsKey(bot.BotsGroup) && _groups.Count >= MaxSquads)) return;
 		try
 		{
 			Squad squad = GetSquad(bot.BotsGroup);
@@ -129,7 +147,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	{
 		// Unity's destroyed-object bool can be false while the registry key is valid.
 		if (ReferenceEquals(bot, null) || !_bots.TryGetValue(bot, out var record)) return;
-		if (record.Dormant) Wake(record.Squad);
+		if (record.Dormant || record.Squad.Waking) Wake(record.Squad);
 		try { Restore(record); }
 		catch (Exception ex) { Plugin.Log.LogWarning("[Ghost] removed bot restore failed: " + ex.Message); }
 		if (record.Agent != null) _agents.Remove(record.Agent);
@@ -178,6 +196,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	internal static void PlacementChanged(BotOwner bot)
 	{
 		if (!_instance || !bot || !_instance._bots.TryGetValue(bot, out var record)) return;
+		_instance.Wake(record.Squad); // only external placements use this callback
 		record.SpawnZone = bot.SpawnBotZone;
 		record.SpawnZoneName = record.SpawnZone ? record.SpawnZone.name : null;
 		record.BlockUntil = Time.time + 15f;
@@ -199,8 +218,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			// is switched OFF; those switches take the early restore path below.
 			if (_sainWakePending > 0)
 			{
+				int botLimit1 = 0;
 				foreach (BotRecord record in _bots.Values)
 				{
+					if (++botLimit1 > MaxBots) break;
 					if (!record.SainWakePending) continue;
 					if (!record.Bot || record.Bot.IsDead || record.Bot.HealthController?.IsAlive != true) FinishSainWake(record.Bot);
 					else if (Time.frameCount > record.SainWakeDeadline)
@@ -214,21 +235,24 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				RestoreAll();
 				return;
 			}
-			TerminalCoop.CollectHumans(_humans);
+			CollectHumans();
 			_retired.Clear();
+			int botLimit2 = 0;
 			foreach (BotRecord record in _bots.Values)
 			{
+				if (++botLimit2 > MaxBots) break;
 				if (!record.Bot || record.Bot.IsDead || (record.Bot.HealthController != null && !record.Bot.HealthController.IsAlive)) _retired.Add(record.Bot);
 			}
-			for (int i = 0; i < _retired.Count; i++) Remove(_retired[i]);
+			for (int i = 0; i < _retired.Count && i < MaxBots; i++) Remove(_retired[i]);
 			float wake = Mathf.Min(Plugin.GhostWakeDistance.Value, Plugin.GhostSleepDistance.Value - 1f);
 			float wakeSq = wake * wake;
+			_scope.Capture(_humans, wake);
 			// Proximity and exclusions are urgent, independent of the sleep budget.
-			for (int i = 0; i < _groups.Count; i++)
+			for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
 			{
 				Squad squad = _groups[i];
-				if (!squad.Dormant) continue;
-				for (int j = 0; j < squad.Members.Count; j++)
+				if (!squad.Dormant && !squad.Waking) continue;
+				for (int j = 0; j < squad.Members.Count && j < MaxMembers; j++)
 				{
 					BotRecord record = squad.Members[j];
 					BotOwner bot = record.Bot;
@@ -236,9 +260,16 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 					{
 						if (!bot || bot.IsDead || bot.HealthController == null || !bot.HealthController.IsAlive
 							|| _humans.Count == 0 || bot.BotsGroup != squad.Group || TerminalGhostPolicy.Protected(record)
-							|| bot.BotState != EBotState.NonActive || bot.Brain?.Agent != record.Agent || TerminalGhostPolicy.NearHuman(bot, _humans, wakeSq))
+							|| TerminalGhostPolicy.Cutscene
+							|| (record.Dormant && (bot.BotState != EBotState.NonActive || bot.Brain?.Agent != record.Agent))
+							|| TerminalGhostPolicy.NearHuman(bot, _humans, 2500f))
 						{
 							Wake(squad);
+							break;
+						}
+						if (squad.Dormant && TerminalGhostPolicy.NearHuman(bot, _humans, wakeSq))
+						{
+							Wake(squad, false);
 							break;
 						}
 					}
@@ -246,22 +277,43 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				}
 			}
 			// Ordinary enemy-selection wakes: at most ONE squad per rendered frame.
-			while (_wakeQueue.Count > 0)
+			for (int dequeued = 0; dequeued < MaxSquads && _wakeQueue.Count > 0; dequeued++)
 			{
 				Squad squad = _wakeQueue.Dequeue();
 				squad.Queued = false;
+				BotOwner observer = squad.Observer;
+				squad.Observer = null;
 				if (!squad.Dormant) continue;
-				Wake(squad);
+				if (!observer || !_bots.TryGetValue(observer, out var other)
+					|| !TerminalGhostCombat.InEncounterRange(squad, other.Squad)
+					|| !TryGhostEncounter(squad, other.Squad)) Wake(squad, false);
 				break;
 			}
+			ScanScope();
+			PumpWakes();
 			if (Time.time >= _nextScan)
 			{
 				_nextScan = Time.time + 0.5f;
 				int budget = Math.Min(4, _groups.Count);
-				for (int i = 0; i < budget; i++)
+				for (int i = 0; i < budget && i < 4; i++)
 				{
 					if (_cursor >= _groups.Count) _cursor = 0;
-					Evaluate(_groups[_cursor++]);
+					TrySleep(_groups[_cursor++]);
+				}
+			}
+			int pathsLeft = 1, movesLeft = 4;
+			int motionFirst = _motionCursor;
+			_motionCursor = (_motionCursor + 1) % Math.Max(1, _groups.Count);
+			for (int i = 0, count = Math.Min(_groups.Count, MaxSquads); i < count; i++)
+			{
+				Squad squad = _groups[(motionFirst + i) % count];
+				try { TerminalGhostMovement.Tick(squad, _humans, ref pathsLeft, ref movesLeft); }
+				catch (Exception ex)
+				{
+					BotOwner failed = squad.Motion.Leader?.Bot;
+					Wake(squad);
+					if (failed) Fault(failed, ex);
+					else Plugin.Log.LogWarning("[GhostMove] restored squad: " + ex.Message);
 				}
 			}
 			_combat.Tick(Time.time, _humans);
@@ -279,29 +331,123 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		}
 	}
 
-	private void Evaluate(Squad squad)
+	private void CollectHumans()
 	{
-		if (squad.Dormant) return;
+		_humans.Clear();
+		GameWorld world = Singleton<GameWorld>.Instantiated ? Singleton<GameWorld>.Instance : null;
+		if (TerminalCoop.IsHuman(world?.MainPlayer)) _humans.Add(world.MainPlayer);
+		if (world?.RegisteredPlayers == null) return;
+		int examined = 0;
+		foreach (IPlayer candidate in world.RegisteredPlayers)
+		{
+			if (++examined > MaxBots || _humans.Count >= MaxHumans) break;
+			if (candidate is Player player && TerminalCoop.IsHuman(player) && !_humans.Contains(player)) _humans.Add(player);
+		}
+	}
+
+	private void ScanScope()
+	{
+		int count = Math.Min(_groups.Count, MaxSquads);
+		int wakeBudget = 2;
+		for (int i = 0; i < count && i < 16 && wakeBudget > 0; i++)
+		{
+			if (_scopeCursor >= count) _scopeCursor = 0;
+			Squad squad = _groups[_scopeCursor++];
+			if (!squad.Dormant) continue;
+			for (int j = 0; j < squad.Members.Count && j < MaxMembers; j++)
+			{
+				BotOwner bot = squad.Members[j].Bot;
+				if (!bot || bot.IsDead || !_scope.Contains(bot.Position)) continue;
+				_scopeWakes++;
+				wakeBudget--;
+				Wake(squad, false);
+				break;
+			}
+		}
+	}
+
+	private void PumpWakes()
+	{
+		if (Plugin.GhostWakeDelayMs.Value > 0 && Time.time < _nextMemberWake) return;
+		int count = Math.Min(_groups.Count, MaxSquads);
+		for (int i = 0; i < count && i < MaxSquads; i++)
+		{
+			if (_wakeCursor >= count) _wakeCursor = 0;
+			Squad squad = _groups[_wakeCursor++];
+			if (!squad.Waking) continue;
+			if (Plugin.GhostWakeDelayMs.Value == 0) { Wake(squad); continue; }
+			for (int checkedMembers = 0; checkedMembers < MaxMembers && squad.WakeCursor < squad.Members.Count; checkedMembers++)
+			{
+				BotRecord record = squad.Members[squad.WakeCursor++];
+				if (!record.Dormant) continue;
+				record.BlockUntil = Time.time + 2f;
+				try { Restore(record); }
+				catch (Exception ex) { Fault(record.Bot, ex); }
+				_staggered++;
+				_nextMemberWake = Time.time + Plugin.GhostWakeDelayMs.Value * 0.001f;
+				if (squad.WakeCursor >= squad.Members.Count) squad.Waking = false;
+				return; // global one member per rendered frame, no overdue catch-up
+			}
+			squad.Waking = false;
+		}
+	}
+
+	internal static bool WakeAtDestination(Squad squad, Vector3 position)
+	{
+		if (!_instance) return true;
+		float wake = Mathf.Min(Plugin.GhostWakeDistance.Value, Plugin.GhostSleepDistance.Value - 1f);
+		for (int i = 0; i < _instance._humans.Count && i < MaxHumans; i++)
+		{
+			float distanceSq = (position - _instance._humans[i].Position).sqrMagnitude;
+			if (distanceSq > wake * wake && distanceSq > 2500f) continue;
+			_instance.Wake(squad, distanceSq <= 2500f);
+			return true;
+		}
+		if (_instance._scope.Contains(position))
+		{
+			_instance._scopeWakes++;
+			_instance.Wake(squad, false);
+			return true;
+		}
+		return false;
+	}
+
+	internal static bool TryGhostEncounter(Squad dormant, Squad awake)
+	{
+		if (!Running || !Plugin.GhostCombat.Value || !Plugin.GhostSleepAwake.Value
+			|| dormant == awake || dormant == null || awake == null || !dormant.Dormant || awake.Waking) return false;
+		if (awake.Dormant) return true;
+		if (!_instance.TrySleep(awake)) return false;
+		_instance._ghostedAwake++;
+		_instance._combat.Encounter(dormant, awake, Time.time);
+		return dormant.Dormant && awake.Dormant;
+	}
+
+	private bool TrySleep(Squad squad)
+	{
+		if (squad.Dormant || squad.Waking) return false;
+		if (squad.Members.Count > MaxMembers || squad.Group.MembersCount > MaxMembers) { squad.Blocked = BlockReason.Invalid; return false; }
 		squad.Blocked = BlockReason.None;
-		if (squad.Queued) { squad.Blocked = BlockReason.Block; return; }
-		if (_humans.Count == 0) { squad.Blocked = BlockReason.NoHuman; return; }
-		if (TerminalGhostPolicy.Cutscene) { squad.Blocked = BlockReason.Cutscene; return; }
+		if (squad.Queued) { squad.Blocked = BlockReason.Block; return false; }
+		if (_humans.Count == 0) { squad.Blocked = BlockReason.NoHuman; return false; }
+		if (TerminalGhostPolicy.Cutscene) { squad.Blocked = BlockReason.Cutscene; return false; }
 		float now = Time.time;
 		float sleep = Plugin.GhostSleepDistance.Value;
 		float sleepSq = sleep * sleep;
 		bool any = false;
 		// Test the ACTUAL group, including any member missing from our registry.
-		for (int i = 0; i < squad.Group.MembersCount; i++)
+		for (int i = 0; i < squad.Group.MembersCount && i < MaxMembers; i++)
 		{
 			BotOwner bot = squad.Group.Member(i);
 			if (!bot || bot.IsDead || bot.HealthController == null || !bot.HealthController.IsAlive) continue;
 			try
 			{
-				if (!_bots.TryGetValue(bot, out var record) || record.Squad != squad) { squad.Blocked = BlockReason.Invalid; return; }
-				if (now < record.BlockUntil) { squad.Blocked = BlockReason.Block; return; }
+				if (!_bots.TryGetValue(bot, out var record) || record.Squad != squad) { squad.Blocked = BlockReason.Invalid; return false; }
+				if (now < record.BlockUntil || record.SainWakePending) { squad.Blocked = BlockReason.Block; return false; }
 				squad.Blocked = TerminalGhostPolicy.SleepBlock(record, now);
-				if (squad.Blocked != BlockReason.None) return;
-				if (TerminalGhostPolicy.NearHuman(bot, _humans, sleepSq)) { squad.Blocked = BlockReason.Near; return; }
+				if (squad.Blocked != BlockReason.None) return false;
+				if (TerminalGhostPolicy.NearHuman(bot, _humans, sleepSq)) { squad.Blocked = BlockReason.Near; return false; }
+				if (_scope.Contains(bot.Position)) { squad.Blocked = BlockReason.Scope; return false; }
 				// Agent can be created after the birth callback; dictionary assignment reuses storage.
 				if (record.Agent != bot.Brain.Agent)
 				{
@@ -311,17 +457,17 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				}
 				any = true;
 			}
-			catch (Exception ex) { squad.Blocked = BlockReason.Block; Fault(bot, ex); return; }
+			catch (Exception ex) { squad.Blocked = BlockReason.Block; Fault(bot, ex); return false; }
 		}
-		if (!any) { squad.Blocked = BlockReason.Invalid; return; }
+		if (!any) { squad.Blocked = BlockReason.Invalid; return false; }
 		// A missed membership event must never put a bot from another group to sleep.
-		for (int i = 0; i < squad.Members.Count; i++)
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
 		{
 			BotOwner member = squad.Members[i].Bot;
-			if (member && !member.IsDead && (member.BotsGroup != squad.Group || !squad.Group.Contains(member))) { squad.Blocked = BlockReason.Invalid; return; }
+			if (member && !member.IsDead && (member.BotsGroup != squad.Group || !squad.Group.Contains(member))) { squad.Blocked = BlockReason.Invalid; return false; }
 		}
 		squad.Dormant = true;
-		for (int i = 0; i < squad.Members.Count; i++)
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
 		{
 			BotRecord record = squad.Members[i];
 			BotOwner bot = record.Bot;
@@ -342,16 +488,23 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 				bot.BotState = EBotState.NonActive;
 				record.Body.Hide(bot.GetPlayer);
 			}
-			catch (Exception ex) { Fault(bot, ex); return; }
+			catch (Exception ex) { Fault(bot, ex); return false; }
 		}
 		ClearIncomingTargets(squad);
-		if (squad.Dormant) _sleeps++;
+		if (squad.Dormant)
+		{
+			_sleeps++;
+			TerminalGhostMovement.Begin(squad, _humans);
+		}
+		return squad.Dormant;
 	}
 
 	private void ClearIncomingTargets(Squad squad)
 	{
+		int botLimit3 = 0;
 		foreach (BotRecord record in _bots.Values)
 		{
+			if (++botLimit3 > MaxBots) break;
 			BotOwner bot = record.Bot;
 			if (!bot || record.Dormant) continue;
 			try
@@ -371,8 +524,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		if (!Running) return;
 		long start = Stopwatch.GetTimestamp();
 		_inMeasuredPass = true;
+		int botLimit4 = 0;
 		foreach (BotRecord record in _bots.Values)
 		{
+			if (++botLimit4 > MaxBots) break;
 			if (!record.Dormant) continue;
 			try { record.Body.Enforce(); }
 			catch (Exception ex) { Fault(record.Bot, ex); }
@@ -406,19 +561,24 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		{
 			// One most recent first-block reason per awake squad, not per bot/scan attempt.
 			Array.Clear(_blocked, 0, _blocked.Length);
-			for (int i = 0; i < _groups.Count; i++)
+			for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
 				if (!_groups[i].Dormant) _blocked[(int)_groups[i].Blocked]++;
-			int dormant = 0, total = 0;
+			int dormant = 0, total = 0, moving = 0;
+			for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
+				if (_groups[i].Dormant && _groups[i].Motion.Moving) moving++;
+			int botLimit5 = 0;
 			foreach (BotRecord record in _bots.Values)
 			{
+				if (++botLimit5 > MaxBots) break;
 				if (!record.Bot || record.Bot.IsDead) continue;
 				total++;
 				if (record.Dormant) dormant++;
 			}
-			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)"
-				+ $", blocked: boss {_blocked[(int)BlockReason.Boss]}, crew {_blocked[(int)BlockReason.Crew]}, zone {_blocked[(int)BlockReason.Zone]}, stage {_blocked[(int)BlockReason.Stage]}, young {_blocked[(int)BlockReason.Young]}, damaged {_blocked[(int)BlockReason.Damaged]}, notActive {_blocked[(int)BlockReason.NotActive]}, hands {_blocked[(int)BlockReason.Hands]}, humanFight {_blocked[(int)BlockReason.HumanFight]}, sain {_blocked[(int)BlockReason.Sain]}, near {_blocked[(int)BlockReason.Near]}, block {_blocked[(int)BlockReason.Block]}, cutscene {_blocked[(int)BlockReason.Cutscene]}, civilian {_blocked[(int)BlockReason.Civilian]}, ruaf {_blocked[(int)BlockReason.Ruaf]}, placement {_blocked[(int)BlockReason.Placement]}, invalid {_blocked[(int)BlockReason.Invalid]}, noHuman {_blocked[(int)BlockReason.NoHuman]}");
+			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, moving {moving}, ghosted-awake {_ghostedAwake}, scopeWakes {_scopeWakes}, staggered {_staggered}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)"
+				+ $", blocked: boss {_blocked[(int)BlockReason.Boss]}, crew {_blocked[(int)BlockReason.Crew]}, zone {_blocked[(int)BlockReason.Zone]}, stage {_blocked[(int)BlockReason.Stage]}, young {_blocked[(int)BlockReason.Young]}, damaged {_blocked[(int)BlockReason.Damaged]}, notActive {_blocked[(int)BlockReason.NotActive]}, hands {_blocked[(int)BlockReason.Hands]}, humanFight {_blocked[(int)BlockReason.HumanFight]}, sain {_blocked[(int)BlockReason.Sain]}, near {_blocked[(int)BlockReason.Near]}, block {_blocked[(int)BlockReason.Block]}, cutscene {_blocked[(int)BlockReason.Cutscene]}, civilian {_blocked[(int)BlockReason.Civilian]}, ruaf {_blocked[(int)BlockReason.Ruaf]}, placement {_blocked[(int)BlockReason.Placement]}, invalid {_blocked[(int)BlockReason.Invalid]}, noHuman {_blocked[(int)BlockReason.NoHuman]}, type {_blocked[(int)BlockReason.Type]}, scope {_blocked[(int)BlockReason.Scope]}");
 		}
 		_sleeps = _wakes = _samples = 0;
+		_scopeWakes = _staggered = _ghostedAwake = 0;
 		_combat.ResetShots();
 		_sumMs = _maxMs = 0;
 	}
@@ -444,20 +604,36 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		}
 	}
 
-	private void Wake(Squad squad)
+	private void Wake(Squad squad, bool immediate = true)
 	{
+		var fight = squad.Fight;
+		Squad opponent = fight == null ? null : (fight.A == squad ? fight.B : fight.A);
 		_combat.Cancel(squad);
-		if (!squad.Dormant) return;
+		// Cancel detaches both Fight references before entering the opponent's wake.
+		// Thus at most one extra call is possible, and no reserved hit survives.
+		if (opponent != null) Wake(opponent, immediate);
+		TerminalGhostMovement.Stop(squad);
+		if (!immediate && Plugin.GhostWakeDelayMs.Value > 0)
+		{
+			if (squad.Waking || !squad.Dormant) return;
+			squad.Dormant = false;
+			squad.Waking = true;
+			squad.WakeCursor = 0;
+			_wakes++;
+			return;
+		}
+		if (!squad.Dormant && !squad.Waking) return;
 		long start = _inMeasuredPass ? 0 : Stopwatch.GetTimestamp();
-		squad.Dormant = false;
-		for (int i = 0; i < squad.Members.Count; i++)
+		bool counted = squad.Waking;
+		squad.Dormant = squad.Waking = false;
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
 		{
 			BotRecord record = squad.Members[i];
 			record.BlockUntil = Time.time + 2f;
 			try { Restore(record); }
 			catch (Exception ex) { Plugin.Log.LogError("[Ghost] body restore failed: " + ex.Message); }
 		}
-		_wakes++;
+		if (!counted) _wakes++;
 		if (start != 0) _pendingHookMs += (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency;
 	}
 
@@ -468,12 +644,13 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		try
 		{
 			_combat.CancelAll();
-			for (int i = 0; i < _groups.Count; i++)
+			for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
 			{
 				Wake(_groups[i]);
 				_groups[i].Queued = false;
 			}
 			_wakeQueue.Clear();
+			_nextMemberWake = 0f;
 		}
 		finally { _restoring = false; }
 	}
@@ -528,9 +705,9 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		_instance.Restore(record);
 	}
 
-	internal static void WakeSquad(Squad squad)
+	internal static void WakeSquad(Squad squad, bool immediate = true)
 	{
-		if (_instance && squad != null) _instance.Wake(squad);
+		if (_instance && squad != null) _instance.Wake(squad, immediate);
 	}
 
 	internal static void Damage(Player player)
@@ -554,9 +731,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		if (IsDormant(observer)) return false;
 		BotOwner target = person?.AIData?.BotOwner;
 		if (!_instance || !target || !_instance._bots.TryGetValue(target, out var record) || !record.Dormant) return true;
-		if (observer && !observer.IsDead && observer.BotState == EBotState.Active && !record.Squad.Queued)
+		if (observer && !observer.IsDead && observer.BotState == EBotState.Active && !record.Squad.Queued && !record.Squad.Waking)
 		{
+			if (_instance._wakeQueue.Count >= MaxSquads) { _instance.Wake(record.Squad); return false; }
 			record.Squad.Queued = true;
+			record.Squad.Observer = observer;
 			_instance._wakeQueue.Enqueue(record.Squad);
 		}
 		return false; // never accept a still-hidden target while waiting for the budget
@@ -573,8 +752,10 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	internal static void WeaponReturning(WeaponPrefab weapon)
 	{
 		if (!_instance) return;
+		int examined = 0;
 		foreach (BotRecord record in _instance._bots.Values)
 		{
+			if (++examined > MaxBots) break;
 			if (!record.Dormant) continue;
 			try { record.Body.ReleaseWeapon(weapon.transform); }
 			catch (Exception ex) { Fault(record.Bot, ex); }

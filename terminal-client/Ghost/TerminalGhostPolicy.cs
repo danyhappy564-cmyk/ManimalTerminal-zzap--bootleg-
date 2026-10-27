@@ -12,28 +12,52 @@ internal static class TerminalGhostPolicy
 	internal enum BlockReason
 	{
 		None, Boss, Crew, Zone, Stage, Young, Damaged, NotActive, Hands, HumanFight,
-		Sain, Near, Block, Cutscene, Civilian, Ruaf, Placement, Invalid, NoHuman, Count
+		Sain, Near, Block, Cutscene, Civilian, Ruaf, Placement, Invalid, NoHuman, Type, Scope, Count
 	}
 
-	private static readonly Dictionary<WildSpawnType, bool> BossRoles = new Dictionary<WildSpawnType, bool>();
+	private enum Kind { Scav, Goon, Boss, Cultist, Raider, Bloodhound, Ruaf, BlackDivision, Other }
+	private static readonly Dictionary<WildSpawnType, Kind> Roles = new Dictionary<WildSpawnType, Kind>();
 
-	// EFT's IsBoss/IsFollower and BotBoss.IamBoss also describe ordinary PMC squads.
-	// Cache actual boss/cultist roles, including registered custom boss/follower names.
-	private static bool IsBossRole(WildSpawnType role)
+	// Native IsBoss/IamBoss also describes ordinary PMC leaders. Classify the role
+	// once at registration; hot checks only read this enum and the live toggles.
+	private static Kind Classify(WildSpawnType role)
 	{
-		if (BossRoles.TryGetValue(role, out bool boss)) return boss;
+		if (Roles.TryGetValue(role, out Kind kind)) return kind;
 		string name = TerminalRoles.Name(role);
-		boss = name.StartsWith("boss", StringComparison.OrdinalIgnoreCase)
+		if (TerminalRoles.IsRuaf(role)) kind = Kind.Ruaf;
+		else if (name.IndexOf("blackdiv", StringComparison.OrdinalIgnoreCase) >= 0) kind = Kind.BlackDivision;
+		else if (role == WildSpawnType.bossKnight || role == WildSpawnType.followerBigPipe || role == WildSpawnType.followerBirdEye) kind = Kind.Goon;
+		else if (role == WildSpawnType.cursedAssault || name.StartsWith("sectant", StringComparison.OrdinalIgnoreCase)
+			|| name.StartsWith("sectact", StringComparison.OrdinalIgnoreCase)) kind = Kind.Cultist;
+		else if (role == WildSpawnType.pmcBot || role == WildSpawnType.exUsec) kind = Kind.Raider;
+		else if (role == WildSpawnType.arenaFighter || role == WildSpawnType.arenaFighterEvent || role == WildSpawnType.crazyAssaultEvent) kind = Kind.Bloodhound;
+		else if (role == WildSpawnType.marksman || role == WildSpawnType.assault || role == WildSpawnType.assaultGroup) kind = Kind.Scav;
+		else if (name.StartsWith("boss", StringComparison.OrdinalIgnoreCase)
 			|| name.StartsWith("follower", StringComparison.OrdinalIgnoreCase)
-			|| name.StartsWith("sectant", StringComparison.OrdinalIgnoreCase)
-			|| name.StartsWith("sectact", StringComparison.OrdinalIgnoreCase)
 			|| role == WildSpawnType.peacefullZryachiyEvent || role == WildSpawnType.ravangeZryachiyEvent
-			|| role == WildSpawnType.infectedTagilla || role == WildSpawnType.tagillaHelperAgro;
-		BossRoles[role] = boss;
-		return boss;
+			|| role == WildSpawnType.infectedTagilla || role == WildSpawnType.tagillaHelperAgro) kind = Kind.Boss;
+		else kind = Kind.Other;
+		Roles[role] = kind;
+		return kind;
 	}
 
-	internal static void PrepareRole(WildSpawnType role) { IsBossRole(role); }
+	internal static void PrepareRole(WildSpawnType role) { Classify(role); }
+
+	private static bool Enabled(WildSpawnType role)
+	{
+		switch (Classify(role))
+		{
+			case Kind.Scav: return Plugin.GhostScavs.Value;
+			case Kind.Goon: return Plugin.GhostGoons.Value;
+			case Kind.Boss: return Plugin.GhostBosses.Value;
+			case Kind.Cultist: return Plugin.GhostCultists.Value;
+			case Kind.Raider: return Plugin.GhostRaiders.Value;
+			case Kind.Bloodhound: return Plugin.GhostBloodhounds.Value;
+			case Kind.Ruaf: return Plugin.GhostRuaf.Value;
+			case Kind.BlackDivision: return Plugin.GhostBlackDivision.Value;
+			default: return Plugin.GhostOthers.Value;
+		}
+	}
 
 	internal static bool Cutscene => TerminalIntroCutscene.PlayingNow || TerminalAttackCutscene.PlayingNow || TerminalEndingCutscene.PlayingNow;
 
@@ -49,14 +73,13 @@ internal static class TerminalGhostPolicy
 		// 5 of 7 awake squads). Their defense layer only runs with a goal enemy, which
 		// dormancy clears; neutrality/provocation live on the BotsGroup and survive sleep.
 		if (TerminalRoles.IsRuaf(settings.Role) && !Plugin.GhostRuaf.Value) return BlockReason.Ruaf;
-		if (IsBossRole(settings.Role)) return BlockReason.Boss;
+		if (!Enabled(settings.Role)) return BlockReason.Type;
 		if (TerminalCrewJobs.GhostHasPendingOrder(bot.ProfileId) || bot.PriorityAxeTarget?.AllPursuit == true) return BlockReason.Crew;
-		// zzap: only an active rush blocks sleep. Every Black Division bot holds a
-		// permanent Guard post and event scavs keep Job.Hunt after their 180s window,
-		// so blocking on any job kept both factions awake all raid (10/28 log: crew 7~8).
-		// Their layers resume from the same job record when the squad wakes.
+		// Active rushes still block unless hidden movement can replay their existing
+		// destination. Native pending orders/pursuit remain protected above.
 		if (TerminalCrewJobs.ByProfile.TryGetValue(bot.ProfileId, out var job) && job != null
-			&& job.Job != TerminalCrewJobs.Job.None && job.RushUntil > Time.time) return BlockReason.Crew;
+			&& job.Job != TerminalCrewJobs.Job.None && job.RushUntil > Time.time
+			&& !TerminalGhostMovement.CanRepresent(bot, job)) return BlockReason.Crew;
 		if (bot.SpawnBotZone != record.SpawnZone) return BlockReason.Zone;
 		if (TerminalStageWait.OwnsVisibility(bot) || TerminalStageDirector.GhostShouldHold(record.SpawnZoneName)) return BlockReason.Stage;
 		if (TerminalBotMigration.IsInFlight(bot) || TerminalPopulationDirector.GhostPlacementBusy(bot)) return BlockReason.Placement;
@@ -77,8 +100,10 @@ internal static class TerminalGhostPolicy
 		if (hands == null || hands.IsInInteractionStrictCheck() || !hands.CanInteract()
 			|| bot.WeaponManager?.Selector == null || bot.WeaponManager.Selector.IsChanging || bot.Medecine == null || bot.Medecine.Using) return BlockReason.Hands;
 		// Only current human combat blocks entry. Bot-vs-bot combat may pause.
+		int enemies = 0;
 		foreach (var pair in bot.EnemiesController.EnemyInfos)
 		{
+			if (++enemies > TerminalGhostDirector.MaxBots) return BlockReason.HumanFight;
 			EnemyInfo enemy = pair.Value;
 			if (enemy?.Person != null && !enemy.Person.IsAI && enemy.Person.HealthController?.IsAlive == true
 				&& (enemy.IsVisible || enemy.CanShoot || (bot.Memory.GoalEnemy == enemy && now - enemy.TimeLastSeenReal < 30f))) return BlockReason.HumanFight;
@@ -88,7 +113,7 @@ internal static class TerminalGhostPolicy
 
 	internal static bool NearHuman(BotOwner bot, List<Player> humans, float distanceSquared)
 	{
-		for (int i = 0; i < humans.Count; i++)
+		for (int i = 0; i < humans.Count && i < TerminalGhostDirector.MaxHumans; i++)
 			if ((bot.Position - humans[i].Position).sqrMagnitude <= distanceSquared) return true;
 		return false;
 	}

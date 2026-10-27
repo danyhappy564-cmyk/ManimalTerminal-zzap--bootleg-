@@ -75,7 +75,7 @@ internal sealed class TerminalGhostCombat
 		int slot = squad.CombatSlot;
 		if (slot < 0) return;
 		_slots[slot] = null;
-		for (int i = 0; i < _count; i++)
+		for (int i = 0; i < _count && i < MaxSquads; i++)
 			if (_occupied[i] == slot) { _occupied[i] = _occupied[--_count]; break; }
 		for (int i = 0; i < MaxSquads; i++)
 		{
@@ -108,7 +108,23 @@ internal sealed class TerminalGhostCombat
 			var b = _slots[_occupied[_scanB]];
 			_pairsLeft--;
 			if (++_scanB >= _count) { _scanA++; _scanB = _scanA + 1; }
-			if (!a.Dormant || !b.Dormant || a.Queued || b.Queued || a.Fight != null || b.Fight != null) continue;
+			if (a.Waking || b.Waking || a.Queued || b.Queued) continue;
+			if (a.Dormant != b.Dormant)
+			{
+				var dormant = a.Dormant ? a : b;
+				var awake = a.Dormant ? b : a;
+				try
+				{
+					if (!InEncounterRange(dormant, awake)) continue;
+					if (!TerminalGhostDirector.TryGhostEncounter(dormant, awake))
+					{
+						TerminalGhostDirector.WakeSquad(dormant, false);
+						continue;
+					}
+				}
+				catch (Exception ex) { Fail(a, b, ex, now); continue; }
+			}
+			if (!a.Dormant || !b.Dormant || a.Fight != null || b.Fight != null || a.CombatSlot < 0 || b.CombatSlot < 0) continue;
 			if (now < _cooldowns[a.CombatSlot * MaxSquads + b.CombatSlot]) continue;
 			try { Contact(a, b, now); }
 			catch (Exception ex) { Fail(a, b, ex, now); }
@@ -123,9 +139,9 @@ internal sealed class TerminalGhostCombat
 
 	private static bool Eligible(TerminalGhostDirector.Squad squad)
 	{
-		if (!squad.Dormant || squad.Queued) return false;
+		if (!squad.Dormant || squad.Queued || squad.Waking || squad.Members.Count > MaxMembers || squad.Group.MembersCount > MaxMembers) return false;
 		int living = 0;
-		for (int i = 0; i < squad.Members.Count; i++)
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
 		{
 			var member = squad.Members[i];
 			if (!Alive(member)) continue;
@@ -135,7 +151,7 @@ internal sealed class TerminalGhostCombat
 		}
 		if (living == 0 || living > MaxMembers) return false;
 		int actual = 0;
-		for (int i = 0; i < squad.Group.MembersCount; i++)
+		for (int i = 0; i < squad.Group.MembersCount && i < MaxMembers; i++)
 		{
 			BotOwner bot = squad.Group.Member(i);
 			if (bot && !bot.IsDead && bot.HealthController != null && bot.HealthController.IsAlive) actual++;
@@ -143,16 +159,17 @@ internal sealed class TerminalGhostCombat
 		return living == actual;
 	}
 
-	private void Contact(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b, float now)
+	private static bool NearestHostile(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b,
+		out TerminalGhostDirector.BotRecord nearestA, out TerminalGhostDirector.BotRecord nearestB, out float nearestSq)
 	{
-		if (!Eligible(a) || !Eligible(b)) return;
-		TerminalGhostDirector.BotRecord nearestA = null, nearestB = null;
-		float nearestSq = float.PositiveInfinity;
-		for (int i = 0; i < a.Members.Count; i++)
+		nearestA = nearestB = null;
+		nearestSq = float.PositiveInfinity;
+		if (a == null || b == null || a == b || a.Members.Count > MaxMembers || b.Members.Count > MaxMembers) return false;
+		for (int i = 0; i < a.Members.Count && i < MaxMembers; i++)
 		{
 			var ma = a.Members[i];
 			if (!Alive(ma)) continue;
-			for (int j = 0; j < b.Members.Count; j++)
+			for (int j = 0; j < b.Members.Count && j < MaxMembers; j++)
 			{
 				var mb = b.Members[j];
 				if (!Alive(mb)) continue;
@@ -163,8 +180,44 @@ internal sealed class TerminalGhostCombat
 				nearestB = mb;
 			}
 		}
-		if (nearestA == null || nearestB == null) return;
-		float range = Mathf.Clamp(Plugin.GhostCombatRange.Value, 10f, 150f);
+		if (nearestA == null || nearestB == null) return false;
+		var pa = nearestA.Bot.GetPlayer;
+		var pb = nearestB.Bot.GetPlayer;
+		return a.Group.IsEnemy(pb) || b.Group.IsEnemy(pa) || a.Group.IsPlayerEnemy(pb) || b.Group.IsPlayerEnemy(pa);
+	}
+
+	internal static bool InEncounterRange(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b)
+	{
+		float range = Plugin.GhostEncounterDistance.Value;
+		return NearestHostile(a, b, out _, out _, out float distanceSq) && distanceSq <= range * range;
+	}
+
+	private static float Frequency(float low, float normal, float high)
+	{
+		switch (Plugin.GhostFightFrequency.Value)
+		{
+			case TerminalGhostSettings.FightFrequency.Low: return low;
+			case TerminalGhostSettings.FightFrequency.High: return high;
+			default: return normal;
+		}
+	}
+	private static float RetryCooldown => Frequency(60f, 30f, 15f);
+	private static float FightCooldown => Frequency(360f, 180f, 90f);
+
+	internal void Encounter(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b, float now)
+	{
+		if (a.Fight != null || b.Fight != null || a.CombatSlot < 0 || b.CombatSlot < 0
+			|| now < _cooldowns[a.CombatSlot * MaxSquads + b.CombatSlot]) return;
+		try { Contact(a, b, now, Plugin.GhostEncounterDistance.Value); }
+		catch (Exception ex) { Fail(a, b, ex, now); }
+	}
+
+	private void Contact(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b, float now, float encounterRange = 0f)
+	{
+		if (!Eligible(a) || !Eligible(b) || !NearestHostile(a, b, out var nearestA, out var nearestB, out float nearestSq)) return;
+		// An 85m conversion must get a contact attempt at 85m; otherwise two static
+		// squads could sleep forever outside the ordinary 60m contact range.
+		float range = Mathf.Clamp(Mathf.Max(Plugin.GhostCombatRange.Value, encounterRange), 10f, 150f);
 		if (nearestSq > range * range) return;
 		// Installed BotsGroup.IsEnemy(IPlayer): live Enemies list (existing grudges).
 		// IsPlayerEnemy(IPlayer): Settings friendly/warn/enemy bot ROLE lists, then
@@ -172,10 +225,11 @@ internal sealed class TerminalGhostCombat
 		// A hostile direction suffices: its opponent may defend itself. No AddEnemy.
 		var pa = nearestA.Bot.GetPlayer;
 		var pb = nearestB.Bot.GetPlayer;
-		if (!(a.Group.IsEnemy(pb) || b.Group.IsEnemy(pa) || a.Group.IsPlayerEnemy(pb) || b.Group.IsPlayerEnemy(pa))) return;
 		float distance = Mathf.Sqrt(nearestSq);
-		Cooldown(a, b, now + 30f); // failed probability or occlusion: no retry for 30s
-		if (distance > 20f && Random.value >= Mathf.Lerp(0.85f, 0.25f, Mathf.InverseLerp(20f, range, distance))) return;
+		Cooldown(a, b, now + RetryCooldown);
+		float chance = distance <= 20f ? 1f : Mathf.Lerp(0.85f, 0.25f, Mathf.InverseLerp(20f, range, distance));
+		chance = Mathf.Min(1f, chance * Frequency(0.5f, 1f, 1.5f));
+		if (chance < 1f && Random.value >= chance) return;
 		if (!ClearSight(pa.Position + Vector3.up * 1.5f, pb.Position + Vector3.up * 1.5f)) return;
 		for (int i = 0; i < _fights.Length; i++)
 		{
@@ -247,34 +301,39 @@ internal sealed class TerminalGhostCombat
 		fight.CountA = Collect(a, fight.Members, 0);
 		fight.CountB = Collect(b, fight.Members, fight.CountA);
 		float scoreA = 0f, scoreB = 0f;
-		for (int i = 0; i < fight.CountA; i++) scoreA += Score(fight.Members[i], distance);
-		for (int i = fight.CountA; i < fight.CountA + fight.CountB; i++) scoreB += Score(fight.Members[i], distance);
+		for (int i = 0; i < fight.CountA && i < MaxMembers; i++) scoreA += Score(fight.Members[i], distance);
+		for (int i = fight.CountA; i < fight.CountA + fight.CountB && i < MaxMembers * 2; i++) scoreB += Score(fight.Members[i], distance);
 		scoreA *= Random.Range(0.7f, 1.3f);
 		scoreB *= Random.Range(0.7f, 1.3f);
 		bool aWins = scoreA >= scoreB;
 		fight.Ratio = Mathf.Max(scoreA, scoreB) / Mathf.Max(0.0001f, Mathf.Min(scoreA, scoreB));
 		float lethality = Mathf.Lerp(1f, 0.4f, Mathf.InverseLerp(50f, 150f, distance));
-		float losses = (1 + (fight.Ratio > 1.6f ? 1 : 0) + (fight.Ratio > 2.5f ? 1 : 0)) * lethality;
+		float casualtyScale = Mathf.Clamp(Plugin.GhostCombatLethality.Value, 0f, 3f);
+		float losses = (1 + (fight.Ratio > 1.6f ? 1 : 0) + (fight.Ratio > 2.5f ? 1 : 0)) * lethality * casualtyScale;
 		int loserDeaths = Mathf.FloorToInt(losses);
 		if (Random.value < losses - loserDeaths) loserDeaths++;
 		int winnerCount = aWins ? fight.CountA : fight.CountB;
 		int winnerDeaths = fight.Ratio < 1.2f && winnerCount >= 2 && Random.value < 0.3f ? 1 : 0;
+		float winnerLosses = winnerDeaths * casualtyScale;
+		winnerDeaths = Mathf.FloorToInt(winnerLosses);
+		if (winnerLosses > winnerDeaths && Random.value < winnerLosses - winnerDeaths) winnerDeaths++;
+		winnerDeaths = Math.Min(winnerDeaths, Math.Max(0, winnerCount - 1)); // retain a live killer for the losing side's events
 		// One draw per side, then independent draws for its surviving members.
 		float winnerWounds = Random.Range(0.1f, 0.6f);
 		float loserWounds = Random.Range(0.5f, 0.9f);
 		Schedule(fight, 0, fight.CountA, aWins ? winnerDeaths : loserDeaths, aWins ? winnerWounds : loserWounds, true, aWins);
 		Schedule(fight, fight.CountA, fight.CountB, aWins ? loserDeaths : winnerDeaths, aWins ? loserWounds : winnerWounds, false, !aWins);
 		SortEvents(fight);
-		Cooldown(a, b, now + 180f);
+		Cooldown(a, b, now + FightCooldown);
 	}
 
 	private static int Collect(TerminalGhostDirector.Squad squad, TerminalGhostDirector.BotRecord[] members, int start)
 	{
 		int count = 0;
-		for (int i = 0; i < squad.Members.Count; i++)
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
 			if (Alive(squad.Members[i])) members[start + count++] = squad.Members[i];
 		// In-place shuffle: casualty choice has no bias towards the representative.
-		for (int i = count - 1; i > 0; i--)
+		for (int i = Math.Min(count, MaxMembers) - 1; i > 0; i--)
 		{
 			int other = start + Random.Range(0, i + 1);
 			var member = members[start + i];
@@ -287,7 +346,7 @@ internal sealed class TerminalGhostCombat
 	private static void Schedule(Fight fight, int start, int count, int deaths, float wounds, bool sideA, bool winner)
 	{
 		deaths = Math.Min(deaths, count);
-		for (int i = 0; i < count; i++)
+		for (int i = 0; i < count && i < MaxMembers; i++)
 		{
 			bool death = i < deaths;
 			if (!death && Random.value >= wounds) continue;
@@ -314,11 +373,11 @@ internal sealed class TerminalGhostCombat
 	{
 		// Small bounded insertion sort; process deadlines in order even on a slow
 		// frame where several events become due together. No comparer/delegate.
-		for (int i = 1; i < fight.EventCount; i++)
+		for (int i = 1; i < fight.EventCount && i < MaxMembers * 2; i++)
 		{
 			CombatEvent evt = fight.Events[i];
 			int j = i - 1;
-			while (j >= 0 && fight.Events[j].At > evt.At)
+			while (j >= 0 && j < MaxMembers * 2 && fight.Events[j].At > evt.At)
 			{
 				fight.Events[j + 1] = fight.Events[j];
 				j--;
@@ -346,7 +405,7 @@ internal sealed class TerminalGhostCombat
 				// Never apply an overdue hit after the chosen fight duration. A stall
 				// or event budget exhaustion drops the remaining reservations safely.
 				if (now >= fight.Ends) { End(fight, now, fight.Pending == 0 ? "finished" : "deadline"); continue; }
-				for (int j = 0; j < fight.EventCount && budget > 0 && fight.Active; j++)
+				for (int j = 0; j < fight.EventCount && j < MaxMembers * 2 && budget > 0 && fight.Active; j++)
 				{
 					CombatEvent evt = fight.Events[j]; // copy: synchronous death callbacks may cancel the entire pool slot
 					if (evt.Done || now < evt.At) continue;
@@ -376,7 +435,7 @@ internal sealed class TerminalGhostCombat
 			var enemy = evt.SideA ? fight.B : fight.A;
 			TerminalGhostDirector.BotRecord killer = null;
 			int count = 0;
-			for (int i = 0; i < enemy.Members.Count; i++)
+			for (int i = 0; i < enemy.Members.Count && i < MaxMembers; i++)
 			{
 				var member = enemy.Members[i];
 				if (!Alive(member) || !(member.Bot.GetPlayer.HandsController?.Item is Weapon)) continue;
@@ -419,7 +478,7 @@ internal sealed class TerminalGhostCombat
 		TerminalGhostAudio.Reset(fight); // no pending body or tail survives cancellation
 		fight.A.Fight = fight.B.Fight = null;
 		ActiveCount--;
-		Cooldown(fight.A, fight.B, now + 180f);
+		Cooldown(fight.A, fight.B, now + FightCooldown);
 		if (fight.Executing)
 		{
 			// Cancellation is immediate, but a synchronous death callback may be
@@ -457,7 +516,7 @@ internal sealed class TerminalGhostCombat
 		bool started = a?.Fight != null || b?.Fight != null;
 		if (a?.Fight != null) End(a.Fight, now, "exception");
 		if (b?.Fight != null) End(b.Fight, now, "exception");
-		if (a != null && b != null) Cooldown(a, b, started ? now + 180f : now + 30f);
+		if (a != null && b != null) Cooldown(a, b, now + (started ? FightCooldown : RetryCooldown));
 		TerminalGhostDirector.WakeSquad(a);
 		TerminalGhostDirector.WakeSquad(b);
 		Plugin.Log.LogWarning("[GhostFight] cancelled; both squads restored: " + ex.Message);
