@@ -90,6 +90,7 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<bool> EventWavesPush;
 
 	internal static ConfigEntry<bool> RuafNeutral;
+	internal static ConfigEntry<bool> RuafInvulnerable;
 
 	internal static ConfigEntry<bool> RuafDefense;
 
@@ -466,6 +467,7 @@ public class Plugin : BaseUnityPlugin
 		InteractProbeKey = Config.Bind("Terminal", "InteractProbeKey", new KeyboardShortcut(KeyCode.F9), new ConfigDescription("dump the full interaction state of every interactive object within 6m (the why-cant-i-open-this-door button)", null));
 		LightProbeKey = Config.Bind("Terminal", "LightProbeKey", new KeyboardShortcut(KeyCode.F10), new ConfigDescription("dump every lit light within 4m of the player to the log (the what-is-that-glow button)", null));
 		RuafNeutral = Config.Bind("Terminal", "RuafNeutral", defaultValue: true, new ConfigDescription("ruaf never add human enemies unless shot first — neutral until you draw blood", null));
+		RuafInvulnerable = Config.Bind("Terminal", "RuafInvulnerable", defaultValue: true, new ConfigDescription("터미널에서 플레이어의 총·수류탄 등 모든 피해에 RUAF가 무적입니다. 피해·출혈·골절 없음, 배신 판정 없음(계속 중립). 끄면 예전처럼 쏘면 RUAF 전체가 적대합니다.", null));
 		StageDirector = Config.Bind("Terminal", "StageDirector", defaultValue: true, new ConfigDescription("respond to the authored T0 unlock event and retain the retail stage reserve while surplus Zone1 bots move to Zone2; movement uses the SPT compatibility adapter", null));
 		RuafDefense = Config.Bind("Terminal", "RuafDefense", defaultValue: true, new ConfigDescription("retail VSRFDefence port: when ruaf lose sight of their enemy mid-fight they collapse onto cover near their boss (30m tether) and take heal breaks, instead of scattering or blind-pursuing. visible-enemy combat is untouched", null));
 		EventWavesPush = Config.Bind("Terminal", "EventWavesPush", defaultValue: true, new ConfigDescription("tier-event waves storm the players (bigbrain hunt layer) instead of passively patrolling their zone", null));
@@ -665,6 +667,7 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(TerminalLights.Patch_LampsDeadTick));
 		Patch(typeof(TerminalArtilleryDisposeGuard.Patch_SoundDisposeArmor));
 		Patch(typeof(TerminalRuafNeutral.Patch_RuafProvokedByDamage));
+		Patch(typeof(TerminalRuafNeutral.Patch_RuafInvulnerable));
 		Patch(typeof(TerminalCameraDonor.Patch_DumpDonorCamera));
 		Patch(typeof(TerminalCameraDonor.Patch_GraftDonorCamera));
 		Patch(typeof(Patch_RejectShellCameraPrefab));

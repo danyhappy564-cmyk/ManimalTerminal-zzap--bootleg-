@@ -99,18 +99,53 @@ internal static class TerminalRuafNeutral
 				{
 					return true;
 				}
-				if (person.ProfileId != null && Provoked.Contains(person.ProfileId))
-				{
-					return true;
-				}
 				string text = TerminalRoles.Name(settings.Role);
-				if (cause == EBotEnemyCause.followGetHit || cause == EBotEnemyCause.byKill || cause == EBotEnemyCause.death)
+				// Invulnerable mode: RUAF stays neutral to humans no matter the cause.
+				if (!Plugin.RuafInvulnerable.Value)
 				{
-					return true;
+					if (person.ProfileId != null && Provoked.Contains(person.ProfileId))
+					{
+						return true;
+					}
+					if (cause == EBotEnemyCause.followGetHit || cause == EBotEnemyCause.byKill || cause == EBotEnemyCause.death)
+					{
+						return true;
+					}
 				}
 				BlockedAdds++;
 				Plugin.Log.LogDebug($"[RuafNeutral] blocked enemy-add: role='{text}' cause={cause} target=human");
 				__result = false;
+				return false;
+			}
+			catch
+			{
+				return true;
+			}
+		}
+	}
+
+	// zzap 10/28 (user): "터미널에서만 플레이어가 쏘거나 수류탄을 던져서 죽이는 행위는
+	// 무적으로" + "피해 없음·중립 유지". Player.ApplyDamageInfo is the one place a hit
+	// becomes health damage, bleeding/fracture side effects, loyalty aggression,
+	// ManageAggressor (the bot's hit reaction) and BeingHitAction (SAIN). Skipping it
+	// for a human-caused hit on a living RUAF covers bullets, fragments, blasts and melee.
+	// Damage from bots (scavs, Black Division) is untouched.
+	[HarmonyPatch(typeof(Player), "ApplyDamageInfo")]
+	internal static class Patch_RuafInvulnerable
+	{
+		internal static int Blocked;
+
+		[HarmonyPrefix, HarmonyPriority(Priority.First)]
+		private static bool Prefix(Player __instance, DamageInfo damageInfo)
+		{
+			try
+			{
+				if (!TerminalGate.On || !Plugin.RuafInvulnerable.Value || __instance == null || !__instance.IsAI) return true;
+				var settings = __instance.Profile?.Info?.Settings;
+				if (settings == null || !TerminalRoles.IsRuaf(settings.Role)) return true;
+				IPlayer attacker = damageInfo.Player?.iPlayer;
+				if (attacker == null || attacker.IsAI) return true;
+				Blocked++;
 				return false;
 			}
 			catch
@@ -129,7 +164,7 @@ internal static class TerminalRuafNeutral
 		{
 			try
 			{
-				if (!TerminalGate.On || !Plugin.RuafNeutral.Value)
+				if (!TerminalGate.On || !Plugin.RuafNeutral.Value || Plugin.RuafInvulnerable.Value)
 				{
 					return;
 				}
