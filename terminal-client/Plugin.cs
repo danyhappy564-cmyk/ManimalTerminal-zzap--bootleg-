@@ -287,6 +287,7 @@ public class Plugin : BaseUnityPlugin
 
 	private void Update()
 	{
+		TerminalConfigKorean.Tick();
 		if (TerminalGate.On)
 		{
 			TerminalPerfWatch.OursBegin();

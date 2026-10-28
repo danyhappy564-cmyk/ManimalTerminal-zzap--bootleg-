@@ -574,7 +574,9 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		}
 		for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
 			if (_groups[i].Dormant && _groups[i].Motion.Moving) moving++;
-		_overlayText = $"유령 모드: 잠든 봇 {dormant}/{total} · 숨긴 이동 {moving}분대 · 모의 싸움 {_combat.ActiveCount}(누적 {_combat.FightsStarted}) · 총성 {_combat.Shots}";
+		_overlayText = TerminalLang.IsKorean
+			? $"유령 모드: 잠든 봇 {dormant}/{total} · 숨긴 이동 {moving}분대 · 모의 싸움 {_combat.ActiveCount}(누적 {_combat.FightsStarted}) · 총성 {_combat.Shots}"
+			: $"Ghost Mode: sleeping bots {dormant}/{total} · hidden moves {moving} squads · simulated fights {_combat.ActiveCount} (total {_combat.FightsStarted}) · shots {_combat.Shots}";
 	}
 
 	private void OnGUI()

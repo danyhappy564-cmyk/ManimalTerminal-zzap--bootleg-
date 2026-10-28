@@ -7,8 +7,11 @@ using HarmonyLib;
 
 namespace Manimal.Terminal;
 
-// zzap 10/28 (user): "f12 설정값 한글로 변경". Keys and sections stay English so every
-// saved value carries over; only what F12 (ConfigurationManager) SHOWS changes.
+// zzap 10/28 (user): "f12 설정값 한글로 변경", then "f12는 영어로도 보이게 ... 영문 모드로도
+// 작동되게". Keys and sections stay English so every saved value carries over; only what
+// F12 (ConfigurationManager) SHOWS changes, and it follows TerminalLang.IsKorean (F12
+// Language, Auto = the game's language). ConfigurationManager rebuilds its list each time
+// the window opens, so switching the tags is enough.
 // ConfigurationManager reads System.ComponentModel DisplayName/Category/Description
 // tags, and stops at the first tag of any other type unless it is named
 // ConfigurationManagerAttributes — so ours go first.
@@ -187,6 +190,62 @@ internal static class TerminalConfigKorean
 		["GhostCombatLethality"] = ("모의 싸움 치명도", "모의 싸움에서 죽는 인원 배율입니다(기본 1.0)."),
 	};
 
+	private sealed class Original
+	{
+		internal ConfigDescription Description;
+		internal string Text;
+		internal object[] Tags;
+		internal object[] KoreanTags;
+		internal string KoreanText;
+	}
+
+	private static readonly List<Original> Originals = new List<Original>(192);
+	private static bool? _korean;
+	private static float _nextCheck;
+
+	// Called once after the last Bind: remembers the English text/tags and prepares the
+	// Korean set. Nothing is shown in Korean until Tick knows the language.
+	// English descriptions for entries whose code-side description was written in Korean
+	// (Ghost Mode and the 10/28 switches), so English mode never shows Hangul in F12.
+	private static readonly Dictionary<string, string> English = new Dictionary<string, string>(StringComparer.Ordinal)
+	{
+		["GhostMode"] = "Turn Ghost Mode on. Squads far from every player go to sleep to save performance. Does not work with Fika.",
+		["GhostSleepDistance"] = "Sleep distance (m). A squad sleeps when every living member is farther than this from every player. Default 125 m.",
+		["GhostWakeDistance"] = "Wake distance (m). A sleeping squad wakes when a player comes this close. Applied below the sleep distance; threats within 50 m wake the whole squad at once. Default 100 m.",
+		["GhostResleepDelay"] = "Minimum seconds after waking before a squad may sleep again.",
+		["GhostOverlay"] = "Show the Ghost Mode status line (sleeping bots, hidden moves, simulated fights) in the top-right corner. For testing.",
+		["GhostBrainThrottle"] = "Pause the AI of sleeping bots. Turning it off wakes every bot and stops new sleeps.",
+		["GhostSainThrottle"] = "Skip SAIN updates for sleeping bots.",
+		["GhostDiagnostics"] = "Log sleep, movement, fight, wake and cost numbers every 30 seconds.",
+		["GhostCombat"] = "Simulated fights: sleeping hostile squads fight out of sight and only the result is applied.",
+		["GhostCombatRange"] = "Distance (m) at which sleeping squads start a fight. Beyond 30 m a wall in between prevents it.",
+		["GhostAudio"] = "Play gunfire for simulated fights (sound only; no real shots, bots do not hear it).",
+		["GhostAudioRange"] = "Only simulated fights within this distance (m) of a player make sound.",
+		["GhostAudioMaxFights"] = "How many simulated fights may make sound at the same time.",
+		["GhostRuaf"] = "Sleep target: RUAF squads.",
+		["GhostScavs"] = "Sleep target: scavs (including snipers).",
+		["GhostGoons"] = "Sleep target: the Goons (Knight, Big Pipe, Birdeye).",
+		["GhostBosses"] = "Sleep target: bosses and their followers (the whole squad together).",
+		["GhostCultists"] = "Sleep target: cultists.",
+		["GhostRaiders"] = "Sleep target: raiders and rogues.",
+		["GhostBloodhounds"] = "Sleep target: Bloodhounds.",
+		["GhostOthers"] = "Sleep target: other factions (PMCs, modded bots). Civilians are never put to sleep.",
+		["GhostBlackDivision"] = "Sleep target: Black Division.",
+		["GhostMovement"] = "Sleeping squads move while hidden: toward crew rush/hunt destinations, or toward a sleeping hostile squad.",
+		["GhostMovementSpeed"] = "Hidden movement speed (m/s). Roaming toward an enemy squad uses 0.4x this speed.",
+		["GhostSleepAwake"] = "When a sleeping squad meets an awake hostile squad, put that squad to sleep too (when safe) and hand them to a simulated fight.",
+		["GhostEncounterDistance"] = "Distance (m) at which a sleeping squad and an awake hostile squad count as meeting.",
+		["GhostWakeDelayMs"] = "Delay (ms) between bots when a squad wakes normally. Getting shot or a threat within 50 m wakes everyone at once. 0 = no delay.",
+		["GhostScopeWake"] = "Looking through an optic (ADS, more than 1x) wakes sleeping bots inside the view cone at long range.",
+		["GhostScopeMaxDistance"] = "Maximum scope wake distance (m). The actual distance is the wake distance times the current zoom, capped here.",
+		["GhostFightFrequency"] = "Simulated fight frequency: Low, Normal, High. Only changes how often fights start, not who wins.",
+		["GhostCombatLethality"] = "Lethality multiplier for simulated fights (deaths only, default 1.0).",
+		["CivilianUpperBodyMask"] = "Civilians holding a knife or nothing get weapon/hand/full-body IK switched off every frame (original behaviour). Applies immediately.",
+		["CivilianRetailAnimator"] = "Use the retail civilian animation. Off by default because it makes civilians shake every frame; off = default scav animation. Applies to civilians spawned afterwards.",
+		["RuafInvulnerable"] = "RUAF on Terminal ignore all player damage (bullets, grenades, melee): no damage, bleeding or fractures, and they stay neutral. Off = the old behaviour, where shooting one turns every RUAF hostile.",
+		["GhostDistanceVersion"] = "Internal: distance-default migration marker.",
+	};
+
 	internal static void Apply(ConfigFile config)
 	{
 		if (TagsField == null || DescriptionField == null)
@@ -200,20 +259,40 @@ internal static class TerminalConfigKorean
 			ConfigEntryBase entry = pair.Value;
 			ConfigDescription description = entry?.Description;
 			if (description == null) continue;
-			string section = entry.Definition.Section;
 			var tags = new List<object>(4);
-			if (Sections.TryGetValue(section, out string category)) tags.Add(new CategoryAttribute(category));
+			if (Sections.TryGetValue(entry.Definition.Section, out string category)) tags.Add(new CategoryAttribute(category));
+			string koreanText = description.Description;
 			if (Entries.TryGetValue(entry.Definition.Key, out var text))
 			{
 				tags.Add(new DisplayNameAttribute(text.Name));
 				tags.Add(new DescriptionAttribute(text.Text));
-				DescriptionField.SetValue(description, text.Text);
+				koreanText = text.Text;
 				named++;
 			}
 			else missing++;
-			if (description.Tags != null) tags.AddRange(description.Tags);
-			TagsField.SetValue(description, tags.ToArray());
+			object[] original = description.Tags ?? new object[0];
+			tags.AddRange(original);
+			string englishText = English.TryGetValue(entry.Definition.Key, out string english) ? english : description.Description;
+			Originals.Add(new Original { Description = description, Text = englishText, Tags = original, KoreanTags = tags.ToArray(), KoreanText = koreanText });
 		}
-		Plugin.Log.LogInfo($"[ConfigKr] F12 Korean names: {named} entries, {missing} without a name");
+		Plugin.Log.LogInfo($"[ConfigKr] F12 names ready: {named} Korean, {missing} without a name; follows the Terminal language");
+	}
+
+	// Plugin.Update: every 2s, switch F12 between Korean and the English originals.
+	internal static void Tick()
+	{
+		if (Originals.Count == 0 || UnityEngine.Time.realtimeSinceStartup < _nextCheck) return;
+		_nextCheck = UnityEngine.Time.realtimeSinceStartup + 2f;
+		bool korean;
+		try { korean = TerminalLang.IsKorean; }
+		catch { return; }
+		if (_korean == korean) return;
+		_korean = korean;
+		foreach (Original item in Originals)
+		{
+			TagsField.SetValue(item.Description, korean ? item.KoreanTags : item.Tags);
+			DescriptionField.SetValue(item.Description, korean ? item.KoreanText : item.Text);
+		}
+		Plugin.Log.LogInfo("[ConfigKr] F12 shown in " + (korean ? "Korean" : "English"));
 	}
 }
