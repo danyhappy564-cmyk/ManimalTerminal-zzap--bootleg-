@@ -10,7 +10,9 @@ namespace Manimal.Terminal;
 internal static class TerminalGhostSettings
 {
 	internal enum FightFrequency { Low, Normal, High }
-	private sealed class LegacyDisplay { public bool Browsable = false; }
+	// ConfigurationManager only copies fields from a tag type NAMED ConfigurationManagerAttributes
+	// (any other unknown tag stops its scan), so the old LegacyDisplay never hid anything.
+	private sealed class ConfigurationManagerAttributes { public bool? Browsable = false; }
 	private static readonly HashSet<string> CurrentKeys = new HashSet<string>(StringComparer.Ordinal);
 	private static bool _readKeys;
 	private static bool _readFailed;
@@ -46,7 +48,7 @@ internal static class TerminalGhostSettings
 		// Snapshot key presence before Bind's automatic Save can create new entries.
 		ReadKeys(file);
 		var legacy = file.Bind("Terminal", key, value,
-			new ConfigDescription("Legacy migration source. Use Terminal Ghost instead.", range, new LegacyDisplay()));
+			new ConfigDescription("Legacy migration source. Use Terminal Ghost instead.", range, new ConfigurationManagerAttributes()));
 		if (_readFailed) return file.Bind("Terminal Ghost", key, legacy.Value, new ConfigDescription(description, range));
 		var current = file.Bind("Terminal Ghost", key, value, new ConfigDescription(description, range));
 		if (!CurrentKeys.Contains(key)) current.Value = legacy.Value;
@@ -61,7 +63,7 @@ internal static class TerminalGhostSettings
 	internal static void MigrateDistances(ConfigFile file, ConfigEntry<float> sleep, ConfigEntry<float> wake, float sleepDefault, float wakeDefault)
 	{
 		var version = file.Bind("Terminal Ghost", "GhostDistanceVersion", 0,
-			new ConfigDescription("Internal: distance-default migration marker.", null, new LegacyDisplay()));
+			new ConfigDescription("Internal: distance-default migration marker.", null, new ConfigurationManagerAttributes()));
 		if (version.Value >= DistanceVersion) return;
 		sleep.Value = sleepDefault;
 		wake.Value = wakeDefault;
