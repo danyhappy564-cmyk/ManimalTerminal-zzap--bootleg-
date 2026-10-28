@@ -636,6 +636,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, moving {moving}, ghosted-awake {_ghostedAwake}, scopeWakes {_scopeWakes}, staggered {_staggered}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)"
 				+ $", wokeBy: near {_wokeBy[(int)WakeReason.Near]}, near50 {_wokeBy[(int)WakeReason.Near50]}, scope {_wokeBy[(int)WakeReason.Scope]}, target {_wokeBy[(int)WakeReason.Target]}, damage {_wokeBy[(int)WakeReason.Damage]}, protect {_wokeBy[(int)WakeReason.Protect]}, move {_wokeBy[(int)WakeReason.Move]}, encounter {_wokeBy[(int)WakeReason.Encounter]}, fault {_wokeBy[(int)WakeReason.Fault]}, other {_wokeBy[(int)WakeReason.Other]}"
 				+ $", blocked: boss {_blocked[(int)BlockReason.Boss]}, crew {_blocked[(int)BlockReason.Crew]}, zone {_blocked[(int)BlockReason.Zone]}, stage {_blocked[(int)BlockReason.Stage]}, young {_blocked[(int)BlockReason.Young]}, damaged {_blocked[(int)BlockReason.Damaged]}, notActive {_blocked[(int)BlockReason.NotActive]}, hands {_blocked[(int)BlockReason.Hands]}, humanFight {_blocked[(int)BlockReason.HumanFight]}, sain {_blocked[(int)BlockReason.Sain]}, near {_blocked[(int)BlockReason.Near]}, block {_blocked[(int)BlockReason.Block]}, cutscene {_blocked[(int)BlockReason.Cutscene]}, civilian {_blocked[(int)BlockReason.Civilian]}, ruaf {_blocked[(int)BlockReason.Ruaf]}, placement {_blocked[(int)BlockReason.Placement]}, invalid {_blocked[(int)BlockReason.Invalid]}, noHuman {_blocked[(int)BlockReason.NoHuman]}, type {_blocked[(int)BlockReason.Type]}, scope {_blocked[(int)BlockReason.Scope]}");
+			Plugin.Log.LogInfo($"[GhostRoam] last30s started {RoamStarted}, stopped {RoamFailed}");
+			Plugin.Log.LogInfo($"[GhostShoot] last30s shots blocked: dormant {ShootBlockedDormant}, sainWake {ShootBlockedSain}, hiddenTarget {ShootBlockedTarget}; RUAF neutral enemy-add blocked {TerminalRuafNeutral.BlockedAdds}");
+			ShootBlockedDormant = ShootBlockedSain = ShootBlockedTarget = 0;
+			TerminalRuafNeutral.BlockedAdds = 0;
+			RoamStarted = RoamFailed = 0;
 			Plugin.Log.LogInfo($"[GhostContact] last30s tries {_combat.ContactTries}, ineligible {_combat.ContactIneligible}, notHostile {_combat.ContactNotHostile}, far {_combat.ContactFar}, chance {_combat.ContactChance}, sight {_combat.ContactSight}; fights started total {_combat.FightsStarted}");
 			_combat.ResetContactStats();
 			if (handsLong > 0)
@@ -725,6 +730,56 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			_nextMemberWake = 0f;
 		}
 		finally { _restoring = false; }
+	}
+
+	internal static int RoamStarted, RoamFailed;
+	internal static int ShootBlockedDormant, ShootBlockedSain, ShootBlockedTarget;
+
+	// TerminalGhostMovement roaming: nearest dormant hostile squad within maxDistance
+	// whose position is far from every human. None if a hostile one is already within
+	// arrive range (the contact sweep owns that pair).
+	internal static bool FindRoamTarget(Squad squad, float maxDistance, float arrive, out BotRecord leader, out Squad target)
+	{
+		leader = null;
+		target = null;
+		if (!_instance || !squad.Dormant || squad.Waking || squad.Queued || squad.Fight != null) return false;
+		for (int i = 0; i < squad.Members.Count && i < MaxMembers; i++)
+		{
+			var record = squad.Members[i];
+			if (record.Bot && !record.Bot.IsDead && record.Dormant) { leader = record; break; }
+		}
+		if (leader == null) return false;
+		float best = maxDistance * maxDistance;
+		for (int i = 0; i < _instance._groups.Count && i < MaxSquads; i++)
+		{
+			Squad other = _instance._groups[i];
+			if (other == squad || !other.Dormant || other.Waking || other.Queued || other.Fight != null) continue;
+			if (!TerminalGhostCombat.NearestHostile(squad, other, out _, out var otherLead, out float nearSq)) continue;
+			if (nearSq <= arrive * arrive) return false;
+			if (nearSq >= best || NearHuman(otherLead.Bot.Position)) continue;
+			best = nearSq;
+			target = other;
+		}
+		if (target == null) return false;
+		RoamStarted++;
+		return true;
+	}
+
+	internal static bool RoamGoal(Squad squad, Squad target, float arrive, out Vector3 goal)
+	{
+		goal = default;
+		if (!_instance || target == null || !target.Dormant || target.Waking || target.Queued || target.Fight != null || squad.Fight != null) return false;
+		if (!TerminalGhostCombat.NearestHostile(squad, target, out _, out var otherLead, out float nearSq) || nearSq <= arrive * arrive) return false;
+		goal = otherLead.Bot.Position;
+		return !NearHuman(goal);
+	}
+
+	private static bool NearHuman(Vector3 position)
+	{
+		float keep = Mathf.Min(Plugin.GhostWakeDistance.Value, Plugin.GhostSleepDistance.Value - 1f) + 30f;
+		for (int i = 0; i < _instance._humans.Count && i < MaxHumans; i++)
+			if ((position - _instance._humans[i].Position).sqrMagnitude <= keep * keep) return true;
+		return false;
 	}
 
 	// OfflinePlayerCulling.ApplyVisibleState postfix: keep a dormant body hidden.

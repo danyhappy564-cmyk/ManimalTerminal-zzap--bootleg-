@@ -407,8 +407,11 @@ internal static class TerminalGhostPatches
 		private static bool Prefix(ShootData __instance, ref bool __result)
 		{
 			BotOwner bot = __instance._owner;
-			if (!TerminalGhostDirector.IsDormant(bot) && !TerminalGhostDirector.SainWakePending(bot)
-				&& TerminalGhostDirector.AllowTarget(bot, bot?.Memory?.GoalEnemy?.Person)) return true;
+			// zzap 10/28: "bots face me but never fire" - count which Ghost gate said no.
+			if (TerminalGhostDirector.IsDormant(bot)) TerminalGhostDirector.ShootBlockedDormant++;
+			else if (TerminalGhostDirector.SainWakePending(bot)) TerminalGhostDirector.ShootBlockedSain++;
+			else if (!TerminalGhostDirector.AllowTarget(bot, bot?.Memory?.GoalEnemy?.Person)) TerminalGhostDirector.ShootBlockedTarget++;
+			else return true;
 			__instance.EndShoot();
 			__result = false;
 			return false;

@@ -168,7 +168,7 @@ internal sealed class TerminalGhostCombat
 		return living == actual;
 	}
 
-	private static bool NearestHostile(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b,
+	internal static bool NearestHostile(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b,
 		out TerminalGhostDirector.BotRecord nearestA, out TerminalGhostDirector.BotRecord nearestB, out float nearestSq)
 	{
 		nearestA = nearestB = null;

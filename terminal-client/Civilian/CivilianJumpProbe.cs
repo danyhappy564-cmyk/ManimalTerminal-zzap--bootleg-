@@ -34,7 +34,25 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		internal readonly List<string> SwitchNames = new List<string>();
 
 		internal float NextSwitchLog;
+
+		// [CivMotion] last-frame values; a change counts as one flip.
+		internal bool Sprint, Moving, MotionKnown;
+		internal float Pose;
+		internal EPlayerState State;
+		internal int Anim;
+		internal System.Type Hands;
+		internal Vector3 Step;
+		internal int Window = -1;
+		internal int Flips, Reversals;
 	}
+
+	// zzap 10/28 2nd raid: civilians still stutter, MotionMagic is not installed (so the
+	// owner debounce never ran) and position steps are 0. Count, per civilian within 30m
+	// of the camera, every frame-to-frame flip of the inputs that drive the body animator
+	// plus direction reversals of the root (back-and-forth "shuffling").
+	private int _motionCivs, _sprintFlips, _poseFlips, _stateFlips, _handsFlips, _animFlips, _moveFlips, _reversals;
+	private int _worstFlips;
+	private string _worst;
 
 	private const float MaxPlausibleSpeed = 9f;
 
@@ -107,9 +125,11 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 			float moved = Vector3.Distance(pos, track.Pos);
 			float rootMoved = Vector3.Distance(root, track.RootPos);
 			int frames = Mathf.Max(1, frame - track.Frame);
+			Vector3 step = pos - track.Pos;
 			track.Pos = pos;
 			track.RootPos = root;
 			track.Frame = frame;
+			if (frames == 1 && camera && (pos - eye).sqrMagnitude <= 900f) SampleMotion(player, track, step);
 			if (frames == 1 && Mathf.Max(moved, rootMoved) >= 0.2f && camera && (pos - eye).sqrMagnitude <= 2500f)
 			{
 				_nearSteps++;
@@ -134,11 +154,56 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		if (Time.realtimeSinceStartup >= _nextNearReport)
 		{
 			_nextNearReport = Time.realtimeSinceStartup + 30f;
+			Plugin.Log.LogInfo($"[CivMotion] last30s civs<=30m {_motionCivs}: sprint {_sprintFlips}, pose {_poseFlips}, state {_stateFlips}, hands {_handsFlips}, anim {_animFlips}, moving {_moveFlips}, reversals {_reversals}; worst {_worst ?? "-"}");
+			_motionCivs = _sprintFlips = _poseFlips = _stateFlips = _handsFlips = _animFlips = _moveFlips = _reversals = _worstFlips = 0;
+			_worst = null;
 			Plugin.Log.LogInfo($"[CivJumpNear] last30s cam<=50m one-frame steps>=0.2m: events {_nearSteps}, bots {_nearBots}, rootSteps {_nearRootSteps}, bodyOnly {_nearSteps - _nearRootSteps}; animOwner rawFlips {Patches.CivilianMotionMatchingPatch.RawFlips}, applied {Patches.CivilianMotionMatchingPatch.AppliedFlips}");
 			Patches.CivilianMotionMatchingPatch.RawFlips = Patches.CivilianMotionMatchingPatch.AppliedFlips = 0;
 			_nearSteps = _nearBots = _nearRootSteps = 0;
 			_nearWindow++;
 		}
+	}
+
+	private void SampleMotion(Player player, Track track, Vector3 step)
+	{
+		BotOwner bot = player.AIData?.BotOwner;
+		bool sprint = bot?.Mover != null && bot.Mover.Sprinting;
+		bool moving = bot?.Mover != null && bot.Mover.IsMoving;
+		float pose = player.PoseLevel;
+		EPlayerState state = player.MovementContext?.CurrentState?.Name ?? EPlayerState.None;
+		System.Type hands = player.HandsController?.GetType();
+		int anim = 0;
+		if (player._animators != null && player._animators.Length != 0 && player._animators[0] != null)
+			anim = player._animators[0].GetCurrentAnimatorStateInfo(0).fullPathHash;
+		step.y = 0f;
+		if (track.Window != _nearWindow) { track.Window = _nearWindow; track.Flips = track.Reversals = 0; _motionCivs++; }
+		if (track.MotionKnown)
+		{
+			int flips = 0;
+			if (sprint != track.Sprint) { _sprintFlips++; flips++; }
+			if (moving != track.Moving) { _moveFlips++; flips++; }
+			if (Mathf.Abs(pose - track.Pose) > 0.05f) { _poseFlips++; flips++; }
+			if (state != track.State) { _stateFlips++; flips++; }
+			if (hands != track.Hands) { _handsFlips++; flips++; }
+			if (anim != track.Anim) { _animFlips++; flips++; }
+			if (step.sqrMagnitude > 0.0001f && track.Step.sqrMagnitude > 0.0001f && Vector3.Dot(step, track.Step) < 0f) { _reversals++; track.Reversals++; flips++; }
+			track.Flips += flips;
+			if (track.Flips > _worstFlips)
+			{
+				_worstFlips = track.Flips;
+				string layer = "?";
+				try { layer = bot != null ? BrainManager.GetActiveLayerName(bot) ?? "<none>" : "?"; } catch { }
+				_worst = $"{player.Profile?.Nickname} flips {track.Flips} reversals {track.Reversals} layer={layer} state={state} sprint={sprint} pose={pose:F2} hands={hands?.Name}";
+			}
+		}
+		track.MotionKnown = true;
+		track.Sprint = sprint;
+		track.Moving = moving;
+		track.Pose = pose;
+		track.State = state;
+		track.Hands = hands;
+		track.Anim = anim;
+		if (step.sqrMagnitude > 0.0001f) track.Step = step;
 	}
 
 	private void TrackLayer(Player player, Track track)

@@ -19,8 +19,17 @@ internal static class TerminalGhostMovement
 		internal int Count, Corner, SampleFailures;
 		internal float NextStep, LastStep, NextPath, NextOrder;
 		internal Vector3 Goal;
-		internal bool Pending, Moving, Hunt;
+		internal bool Pending, Moving, Hunt, Roam;
+		internal TerminalGhostDirector.Squad RoamTarget;
 	}
+
+	// zzap 10/28 2nd raid: 19 bots slept, 1262 contact tries in 30s, fights 0 - every
+	// dormant pair was either friendly (55%) or beyond contact range (45%), and a
+	// dormant squad without a crew rush/hunt order never moved. Roaming walks a
+	// dormant squad (hidden, reduced speed) toward the nearest dormant HOSTILE squad
+	// so the simulated fight can happen. Roam never wakes anyone on failure.
+	internal const float RoamMaxDistance = 300f, RoamArrive = 25f, RoamSpeedFactor = 0.4f, RoamRetry = 60f;
+
 
 	internal static bool CanRepresent(BotOwner bot, TerminalCrewJobs.Rec order)
 	{
@@ -58,6 +67,34 @@ internal static class TerminalGhostMovement
 		Stop(squad);
 		if (!Plugin.GhostMovement.Value) return;
 		State state = squad.Motion;
+		if (!BeginOrder(squad, humans) && Plugin.GhostCombat.Value
+			&& TerminalGhostDirector.FindRoamTarget(squad, RoamMaxDistance, RoamArrive, out var leader, out var target))
+		{
+			state.Leader = leader;
+			state.Roam = true;
+			state.RoamTarget = target;
+			state.Pending = true;
+			state.NextPath = Time.time;
+			state.LastStep = Time.time;
+			Formation(squad, leader);
+		}
+	}
+
+	private static void Formation(TerminalGhostDirector.Squad squad, TerminalGhostDirector.BotRecord leader)
+	{
+		for (int j = 0; j < squad.Members.Count && j < TerminalGhostDirector.MaxMembers; j++)
+		{
+			BotOwner member = squad.Members[j].Bot;
+			Vector3 offset = member ? member.Position - leader.Bot.Position : Vector3.zero;
+			// Keep a compact formation; SamplePosition/raycast validates every member.
+			offset.y = 0f;
+			squad.Members[j].GhostOffset = Vector3.ClampMagnitude(offset, 6f);
+		}
+	}
+
+	private static bool BeginOrder(TerminalGhostDirector.Squad squad, System.Collections.Generic.List<Player> humans)
+	{
+		State state = squad.Motion;
 		// Representative is the first living member carrying a move order.
 		for (int i = 0; i < squad.Members.Count && i < TerminalGhostDirector.MaxMembers; i++)
 		{
@@ -70,22 +107,17 @@ internal static class TerminalGhostMovement
 			state.Pending = true;
 			state.NextPath = Time.time;
 			state.LastStep = Time.time;
-			for (int j = 0; j < squad.Members.Count && j < TerminalGhostDirector.MaxMembers; j++)
-			{
-				BotOwner member = squad.Members[j].Bot;
-				Vector3 offset = member ? member.Position - record.Bot.Position : Vector3.zero;
-				// Keep a compact formation; SamplePosition/raycast validates every member.
-				offset.y = 0f;
-				squad.Members[j].GhostOffset = Vector3.ClampMagnitude(offset, 6f);
-			}
-			return;
+			Formation(squad, record);
+			return true;
 		}
+		return false;
 	}
 
 	internal static void Stop(TerminalGhostDirector.Squad squad)
 	{
 		State state = squad.Motion;
-		state.Pending = state.Moving = state.Hunt = false;
+		state.Pending = state.Moving = state.Hunt = state.Roam = false;
+		state.RoamTarget = null;
 		state.Leader = null;
 		state.Order = null;
 		state.Count = state.Corner = state.SampleFailures = 0;
@@ -109,14 +141,36 @@ internal static class TerminalGhostMovement
 			if (state.Leader == null) return;
 		}
 		BotOwner leader = state.Leader.Bot;
-		if (!leader || leader.IsDead || !state.Leader.Dormant
-			|| !TerminalCrewJobs.ByProfile.TryGetValue(leader.ProfileId, out var current) || !ReferenceEquals(current, state.Order))
-		{
-			TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
-			return;
-		}
 		float now = Time.time;
-		if (!Destination(leader, current, humans, out Vector3 goal, out bool hunt)) { Stop(squad); return; }
+		Vector3 goal;
+		bool hunt;
+		if (state.Roam)
+		{
+			// A crew order outranks roaming: drop the roam and let Begin pick the order.
+			if (!leader || leader.IsDead || !state.Leader.Dormant
+				|| (TerminalCrewJobs.ByProfile.TryGetValue(leader.ProfileId, out var order) && Destination(leader, order, humans, out _, out _)))
+			{
+				Stop(squad);
+				return;
+			}
+			if (!TerminalGhostDirector.RoamGoal(squad, state.RoamTarget, RoamArrive, out goal))
+			{
+				Stop(squad); // arrived, target gone/awake/fighting, or goal near a human
+				state.NextOrder = now + 10f;
+				return;
+			}
+			hunt = true;
+		}
+		else
+		{
+			if (!leader || leader.IsDead || !state.Leader.Dormant
+				|| !TerminalCrewJobs.ByProfile.TryGetValue(leader.ProfileId, out var current) || !ReferenceEquals(current, state.Order))
+			{
+				TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
+				return;
+			}
+			if (!Destination(leader, current, humans, out goal, out hunt)) { Stop(squad); return; }
+		}
 		if (state.Moving && !hunt && (goal - state.Goal).sqrMagnitude > 1f)
 		{
 			TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move); // changed fixed destination belongs to the live crew layer
@@ -148,7 +202,7 @@ internal static class TerminalGhostMovement
 		}
 		if (!state.Moving || now < state.NextStep || movesLeft <= 0) return;
 		movesLeft--;
-		float travel = Mathf.Clamp(now - state.LastStep, 0f, 0.5f) * Plugin.GhostMovementSpeed.Value;
+		float travel = Mathf.Clamp(now - state.LastStep, 0f, 0.5f) * Plugin.GhostMovementSpeed.Value * (state.Roam ? RoamSpeedFactor : 1f);
 		state.LastStep = now;
 		state.NextStep = now + 0.5f;
 		Vector3 next = leader.Position;
@@ -234,6 +288,15 @@ internal static class TerminalGhostMovement
 
 	private static void GiveBack(TerminalGhostDirector.Squad squad, string reason)
 	{
+		if (squad.Motion.Roam)
+		{
+			// Roaming is optional: stay asleep where we are and try again later.
+			Stop(squad);
+			squad.Motion.NextOrder = Time.time + RoamRetry;
+			TerminalGhostDirector.RoamFailed++;
+			if (Plugin.GhostDiagnostics.Value) Plugin.Log.LogInfo("[GhostMove] roam stopped (stays asleep, retry 60s): " + reason);
+			return;
+		}
 		TerminalGhostDirector.WakeSquad(squad, TerminalGhostDirector.WakeReason.Move);
 		// Give live navigation time to leave the blocked/indoor segment, rather
 		// than repeatedly hiding and waking at the same bad path every two seconds.

@@ -19,6 +19,8 @@ internal static class TerminalRuafNeutral
 	private static readonly HashSet<string> Provoked = new HashSet<string>();
 	// Groups already reported once, so a rejecting group does not spam every second.
 	private static readonly HashSet<BotsGroup> Reported = new HashSet<BotsGroup>();
+	// Read and reset by the Ghost 30s report ([GhostShoot] line).
+	internal static int BlockedAdds;
 
 	internal static void ResetForRaid()
 	{
@@ -106,6 +108,7 @@ internal static class TerminalRuafNeutral
 				{
 					return true;
 				}
+				BlockedAdds++;
 				Plugin.Log.LogDebug($"[RuafNeutral] blocked enemy-add: role='{text}' cause={cause} target=human");
 				__result = false;
 				return false;
