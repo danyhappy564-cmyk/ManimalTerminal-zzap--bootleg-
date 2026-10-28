@@ -19,7 +19,7 @@
 
 ## 배포
 
-- 최신: [zzap v1 릴리즈 노트](releases/zzap-v1.md) — 원작 0.2.20 위에 덮어쓰는 빌드, 디스코드·아카라이브 배포
+- 최신: [zzap v1 릴리즈 노트](release-notes/v1.md) — 원작 0.2.20 위에 덮어쓰는 빌드, 디스코드·아카라이브 배포
 - 유령 모드 코드는 [ORBIT](https://github.com/Chazut/ORBIT) 모드를 참고했습니다. manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올리고 싶습니다. 후원: [manimal1920](https://ko-fi.com/manimal1920) · [chazut](https://ko-fi.com/chazut)
 
 ## 변경 이력
