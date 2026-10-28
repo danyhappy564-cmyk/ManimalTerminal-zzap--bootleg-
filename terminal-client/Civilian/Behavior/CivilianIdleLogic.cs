@@ -74,7 +74,15 @@ internal sealed class CivilianIdleLogic : CustomLogic
 				vector2 = state.HomePosition + vector3.normalized * 30f;
 			}
 		}
-		if (BotOwner.Mover.GoToPoint(vector2, slowAtTheEnd: false, 1f) != NavMeshPathStatus.PathInvalid)
+		// zzap: a random 3-8m point is often inside geometry or off the mesh. With the
+		// default mustHaveWay=true, BotPathFinderCorePoints.GoToPosition answers a failed
+		// path with Player.Teleport to the nearest cover point — the 0.5-10m civilian
+		// "jumps" ([CivTeleport] stack, 10/28 15시). Snap to the mesh and never teleport.
+		if (NavMesh.SamplePosition(vector2, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+		{
+			vector2 = hit.position;
+		}
+		if (BotOwner.Mover.GoToPoint(vector2, slowAtTheEnd: false, 1f, mustHaveWay: false) != NavMeshPathStatus.PathInvalid)
 		{
 			_target = vector2;
 			_hasTarget = true;

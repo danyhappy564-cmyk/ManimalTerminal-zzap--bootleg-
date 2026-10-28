@@ -134,7 +134,7 @@ internal sealed class CivilianFleeLogic(BotOwner botOwner) : CustomLogic(botOwne
 	{
 		if (_hasDestination && !_commandIssued)
 		{
-			if (BotOwner.Mover.GoToPoint(_destination, slowAtTheEnd: false, 1f) == NavMeshPathStatus.PathInvalid)
+			if (BotOwner.Mover.GoToPoint(_destination, slowAtTheEnd: false, 1f, mustHaveWay: false) == NavMeshPathStatus.PathInvalid)
 			{
 				_hasDestination = false;
 				CivilianFleeState.Get(BotOwner).MotionRequested = false;
@@ -169,6 +169,12 @@ internal sealed class CivilianFleeLogic(BotOwner botOwner) : CustomLogic(botOwne
 			{
 				vector4 = homePosition + vector5.normalized * 30f;
 			}
+		}
+		// zzap: the home clamp can leave the cover point; keep the goal on the mesh
+		// (GoToPoint runs with mustHaveWay=false so a miss re-picks instead of teleporting).
+		if (NavMesh.SamplePosition(vector4, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+		{
+			vector4 = hit.position;
 		}
 		_destination = vector4;
 		_hasDestination = true;
