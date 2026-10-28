@@ -31,4 +31,3 @@ chazut 후원 : https://ko-fi.com/chazut
 
 원본모드 : https://github.com/danauraborealis/ManimalTerminal
 다운로드 : https://github.com/danyhappy564-cmyk/ManimalTerminal-zzap--bootleg-/releases/tag/zzap-v1
-후원링크 (감사합니다 ^^7) : https://buymeacoffee.com/real_feels
