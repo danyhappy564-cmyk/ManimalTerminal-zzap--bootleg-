@@ -53,6 +53,22 @@ internal static class TerminalGhostSettings
 		return current;
 	}
 
+	// zzap 10/28 (user): "유령 모드 200m가 너무 넓은 거 같음 거의 시가전 중시인데 125m 혹은
+	// 100m가 나을듯". Bind keeps a saved value, so existing configs would stay at 260/210;
+	// move them once to the new defaults, then any later F12 choice is kept.
+	internal const int DistanceVersion = 2;
+
+	internal static void MigrateDistances(ConfigFile file, ConfigEntry<float> sleep, ConfigEntry<float> wake, float sleepDefault, float wakeDefault)
+	{
+		var version = file.Bind("Terminal Ghost", "GhostDistanceVersion", 0,
+			new ConfigDescription("Internal: distance-default migration marker.", null, new LegacyDisplay()));
+		if (version.Value >= DistanceVersion) return;
+		sleep.Value = sleepDefault;
+		wake.Value = wakeDefault;
+		version.Value = DistanceVersion;
+		Plugin.Log.LogInfo($"[GhostConfig] ghost distances moved to new defaults: sleep {sleepDefault:0}m, wake {wakeDefault:0}m");
+	}
+
 	internal static ConfigEntry<T> Bind<T>(ConfigFile file, string key, T value, string description, AcceptableValueBase range = null)
 	{
 		return file.Bind("Terminal Ghost", key, value, new ConfigDescription(description, range));
