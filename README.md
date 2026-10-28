@@ -9,6 +9,10 @@
 - **Original Link:** https://github.com/danauraborealis/ManimalTerminal
 - **License:** MIT
 
+- **Ghost Mode reference:** ORBIT by Chazut — the Ghost Mode (sleeping distant squads, hidden movement, simulated fights) was built with reference to ORBIT.
+- **ORBIT Repository:** https://github.com/Chazut/ORBIT
+- **ORBIT License:** MIT — Copyright (c) 2026 Chazu (full text: [`licenses/ORBIT-LICENSE.txt`](licenses/ORBIT-LICENSE.txt)). Thank you to the author for kindly confirming it can be used.
+
 1. **Reflection & Take-Downs:** I deeply reflect on the ECOT incident. As an AI-assisted "vibe coder," I will immediately delete files if the original authors ask.
 2. **No Re-Distribution:** These ported builds are unverified, temporary fixes. Please do NOT re-upload or share them anywhere else.
 3. **Do Not Pester Original Authors:** Never report bugs or pester original modders regarding issues from my unofficial ports.
