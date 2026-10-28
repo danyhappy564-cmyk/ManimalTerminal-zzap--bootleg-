@@ -565,6 +565,7 @@ public class Plugin : BaseUnityPlugin
 		Patch(typeof(Manimal.Terminal.Civilian.CivilianTeleportProbe.Patch_MovementPosition));
 		Patch(typeof(TerminalGhostPatches.Patch_Attach));
 		Patch(typeof(TerminalGhostPatches.Patch_NewRaid));
+		Patch(typeof(TerminalGhostPatches.Patch_Culling));
 		Patch(typeof(TerminalGhostPatches.Patch_EndRaid));
 		Patch(typeof(TerminalGhostPatches.Patch_Agent));
 		Patch(typeof(TerminalGhostPatches.Patch_BigBrain));

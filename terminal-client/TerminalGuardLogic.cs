@@ -16,6 +16,11 @@ internal class TerminalGuardLogic : CustomLogic
 
 	public override void Update(CustomLayer.ActionData data)
 	{
+		// Same as TerminalHuntLogic: nothing else aims steering inside this logic.
+		if (BotOwner.Mover != null && BotOwner.Mover.IsMoving)
+		{
+			BotOwner.Steering?.LookToMovingDirection();
+		}
 		if (Time.time < _next)
 		{
 			return;

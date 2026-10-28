@@ -150,6 +150,7 @@ internal static class TerminalStageWait
 
 		internal void ReleaseVisibility()
 		{
+			bool owned = _visibility.Count > 0;
 			foreach (KeyValuePair<Renderer, bool> item in _visibility)
 			{
 				if ((bool)item.Key)
@@ -159,6 +160,24 @@ internal static class TerminalStageWait
 			}
 			_visibility.Clear();
 			_entered = false;
+			// zzap: the snapshot may hold EFT culler state that is stale by now.
+			if (owned && (bool)_owner && !_owner.IsDead)
+			{
+				try { TerminalGhostBody.Reapply(_owner.GetPlayer); }
+				catch { }
+			}
+		}
+
+		internal void EnforceHidden()
+		{
+			if (!_entered) return;
+			foreach (KeyValuePair<Renderer, bool> item in _visibility)
+			{
+				if ((bool)item.Key)
+				{
+					item.Key.forceRenderingOff = true;
+				}
+			}
 		}
 
 		public override void Dispose()
@@ -202,6 +221,15 @@ internal static class TerminalStageWait
 			return waitLayer.OwnsVisibility;
 		}
 		return false;
+	}
+
+	internal static void EnforceHidden(BotOwner bot)
+	{
+		BaseBrain baseBrain = bot?.Brain?.BaseBrain;
+		if (baseBrain != null && baseBrain._layers.TryGetValue(24, out var value) && value is WaitLayer waitLayer)
+		{
+			waitLayer.EnforceHidden();
+		}
 	}
 
 	internal static void Release(BotOwner bot)

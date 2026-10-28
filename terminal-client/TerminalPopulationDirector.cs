@@ -1528,7 +1528,7 @@ internal static class TerminalPopulationDirector
 		forcedBackOn = 0;
 		try
 		{
-			if (entry == null || !entry.Player || !entry.Player.PlayerBody || TerminalStageWait.OwnsVisibility(entry.Bot))
+			if (entry == null || !entry.Player || !entry.Player.PlayerBody || TerminalStageWait.OwnsVisibility(entry.Bot) || TerminalGhostDirector.IsDormant(entry.Bot))
 			{
 				return;
 			}

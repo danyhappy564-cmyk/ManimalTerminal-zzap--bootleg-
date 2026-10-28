@@ -24,6 +24,13 @@ internal class TerminalHuntLogic : CustomLogic
 
 	public override void Update(CustomLayer.ActionData data)
 	{
+		// zzap 10/28: event scavs walked to the player BACKWARDS. A BigBrain logic owns
+		// steering; native logics re-aim it every frame, this one never did, so the
+		// body kept the last look target (usually its spawn heading). Face the path.
+		if (BotOwner.Mover != null && BotOwner.Mover.IsMoving)
+		{
+			BotOwner.Steering?.LookToMovingDirection();
+		}
 		if (Time.time < _next)
 		{
 			return;

@@ -36,6 +36,13 @@ internal class TerminalRushLayer : CustomLayer
 		}
 		try
 		{
+			// zzap 10/28: shot from behind, the rush went on and the scav never turned.
+			// Under fire (or a hit within 8s) hands the bot to native/SAIN combat like
+			// TerminalCrewLayer already does.
+			if (BotOwner.Memory != null && (BotOwner.Memory.IsUnderFire || Time.time - BotOwner.Memory.LastTimeHit < 8f))
+			{
+				return false;
+			}
 			EnemyInfo enemyInfo = BotOwner.Memory?.GoalEnemy;
 			float num = (TerminalSainCompat.Detected ? 18f : 40f);
 			if (enemyInfo != null && enemyInfo.IsVisible && (enemyInfo.CurrPosition - BotOwner.Position).sqrMagnitude < num * num)

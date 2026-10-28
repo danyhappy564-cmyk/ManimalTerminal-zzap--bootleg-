@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using EFT;
+using HarmonyLib;
 using UnityEngine;
 
 namespace Manimal.Terminal;
@@ -16,10 +17,28 @@ internal sealed class TerminalGhostBody
 	private readonly List<Renderer> _scratchRenderers = new List<Renderer>(128);
 	private readonly List<Light> _scratchLights = new List<Light>(16);
 	private bool _owned;
+	private Player _player;
+
+	// zzap 10/28: EFT's own body culler (OfflinePlayerCulling, LocalPlayer.botPlayerCulling)
+	// writes PlayerBody forceRenderingOff = !IsVisible, but ONLY when its distance state
+	// changes (and clears it on death). A far bot is already culled when Ghost captures,
+	// so Restore put back "off" after the culler had flipped to visible: RUAF invisible
+	// at 3m until death. And a culler flip while dormant showed a frozen ghost body.
+	// The culler owns the body; after Restore it re-applies, while dormant Ghost re-hides.
+	private static readonly AccessTools.FieldRef<LocalPlayer, OfflinePlayerCulling> BotCulling =
+		AccessTools.FieldRefAccess<LocalPlayer, OfflinePlayerCulling>("botPlayerCulling");
+
+	internal static void Reapply(Player player)
+	{
+		if (!(player is LocalPlayer local) || !local) return;
+		OfflinePlayerCulling culling = BotCulling(local);
+		if (culling != null && culling._player != null) culling.ApplyVisibleState();
+	}
 
 	internal void Hide(Player player)
 	{
 		_owned = true; // partial capture is also recoverable if a component throws
+		_player = player;
 		Capture(player.Transform.Original);
 		// A weapon can be parented outside PlayerBody; cover the whole hands tree too.
 		if (player.HandsController != null)
@@ -115,6 +134,10 @@ internal sealed class TerminalGhostBody
 		_scratchRenderers.Clear();
 		_scratchLights.Clear();
 		_owned = false;
+		Player player = _player;
+		_player = null;
+		try { Reapply(player); }
+		catch (Exception ex) { if (failure == null) failure = ex; }
 		if (failure != null) throw failure;
 	}
 }

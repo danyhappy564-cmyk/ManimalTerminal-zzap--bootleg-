@@ -223,6 +223,7 @@ internal static class TerminalGhostPatches
 			DetectFika(null);
 			TerminalGhostDirector.ResetForRaid();
 			Manimal.Terminal.Civilian.CivilianTeleportProbe.ResetForRaid();
+			Patch_Death.ResetDeathLog();
 		}
 	}
 
@@ -343,9 +344,60 @@ internal static class TerminalGhostPatches
 			// pipeline. Keep that body visible without waking its remaining squad.
 			if (!TerminalGhostCombatDamage.IsSimulated(__instance))
 				TerminalGhostDirector.WakeNow(__instance.AIData?.BotOwner, TerminalGhostDirector.WakeReason.Damage);
+			LogDeath(__instance);
 		}
+
+		// zzap 10/28: user saw Black Division "fight each other and die" right after
+		// ghost mode let go of a big wave; nothing in the log said who killed whom.
+		private static readonly AccessTools.FieldRef<Player, IPlayer> LastAggressor =
+			AccessTools.FieldRefAccess<Player, IPlayer>("LastAggressor");
+		private static int _deathLines;
+
+		private static void LogDeath(Player victim)
+		{
+			if (!TerminalGate.On || !Plugin.GhostDiagnostics.Value || !victim || !victim.IsAI || _deathLines >= 300) return;
+			try
+			{
+				IPlayer killer = LastAggressor(victim);
+				WildSpawnType? victimRole = victim.Profile?.Info?.Settings?.Role;
+				string killerText = "unknown";
+				if (killer != null)
+				{
+					WildSpawnType? killerRole = killer.Profile?.Info?.Settings?.Role;
+					float distance = UnityEngine.Vector3.Distance(victim.Position, killer.Position);
+					killerText = killer.IsAI
+						? $"{(killerRole.HasValue ? TerminalRoles.Name(killerRole.Value) : "?")} group={killer.GroupId} {distance:F0}m"
+						: $"human {distance:F0}m";
+				}
+				_deathLines++;
+				Plugin.Log.LogInfo($"[Death] {(victimRole.HasValue ? TerminalRoles.Name(victimRole.Value) : "?")} group={victim.GroupId} killedBy {killerText}, simulated={TerminalGhostCombatDamage.IsSimulated(victim)}");
+			}
+			catch { }
+		}
+
+		internal static void ResetDeathLog() { _deathLines = 0; }
 		[HarmonyFinalizer]
 		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
+	}
+
+	// See TerminalGhostBody.Reapply: EFT's culler rewrites the body flags on every
+	// distance-state change; dormant and stage-held bodies must stay hidden after it.
+	[HarmonyPatch(typeof(OfflinePlayerCulling), "ApplyVisibleState")]
+	internal static class Patch_Culling
+	{
+		[HarmonyPostfix]
+		private static void Postfix(OfflinePlayerCulling __instance)
+		{
+			if (!TerminalGate.On) return;
+			try
+			{
+				BotOwner bot = __instance._player?.AIData?.BotOwner;
+				if (ReferenceEquals(bot, null)) return;
+				TerminalGhostDirector.EnforceBody(bot);
+				TerminalStageWait.EnforceHidden(bot);
+			}
+			catch { }
+		}
 	}
 
 	[HarmonyPatch(typeof(ShootData), "Shoot")]

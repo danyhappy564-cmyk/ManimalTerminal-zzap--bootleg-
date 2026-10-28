@@ -727,6 +727,13 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		finally { _restoring = false; }
 	}
 
+	// OfflinePlayerCulling.ApplyVisibleState postfix: keep a dormant body hidden.
+	internal static void EnforceBody(BotOwner bot)
+	{
+		if (_instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record) && record.Dormant)
+			record.Body.Enforce();
+	}
+
 	internal static bool IsDormant(BotOwner bot)
 	{
 		return _instance && !ReferenceEquals(bot, null) && _instance._bots.TryGetValue(bot, out var record) && record.Dormant;

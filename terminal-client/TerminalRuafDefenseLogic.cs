@@ -19,6 +19,11 @@ internal class TerminalRuafDefenseLogic : CustomLogic
 
 	public override void Update(CustomLayer.ActionData data)
 	{
+		// Same as TerminalHuntLogic: face the path while walking; the arrival look stays.
+		if (BotOwner.Mover != null && BotOwner.Mover.IsMoving)
+		{
+			BotOwner.Steering?.LookToMovingDirection();
+		}
 		if (Time.time < _next)
 		{
 			return;
