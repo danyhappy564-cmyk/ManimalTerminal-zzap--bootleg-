@@ -6,7 +6,7 @@ using System.IO;
 namespace Manimal.Terminal;
 
 // One-way migration: the new section wins after the first load; old values are
-// read only as defaults. In particular an existing GhostMode=false stays false.
+// read only as defaults. An existing GhostMode=false stays false, except the one-time zzap v1 flip in MigrateDistances.
 internal static class TerminalGhostSettings
 {
 	internal enum FightFrequency { Low, Normal, High }
@@ -58,17 +58,27 @@ internal static class TerminalGhostSettings
 	// zzap 10/28 (user): "유령 모드 200m가 너무 넓은 거 같음 거의 시가전 중시인데 125m 혹은
 	// 100m가 나을듯". Bind keeps a saved value, so existing configs would stay at 260/210;
 	// move them once to the new defaults, then any later F12 choice is kept.
-	internal const int DistanceVersion = 2;
+	// Version 3 (zzap v1): Ghost Mode became default ON. Configs written by earlier test
+	// builds saved the old default OFF without the player choosing it, so flip it once.
+	internal const int DistanceVersion = 3;
 
-	internal static void MigrateDistances(ConfigFile file, ConfigEntry<float> sleep, ConfigEntry<float> wake, float sleepDefault, float wakeDefault)
+	internal static void MigrateDistances(ConfigFile file, ConfigEntry<float> sleep, ConfigEntry<float> wake, float sleepDefault, float wakeDefault, ConfigEntry<bool> ghostMode)
 	{
 		var version = file.Bind("Terminal Ghost", "GhostDistanceVersion", 0,
 			new ConfigDescription("Internal: distance-default migration marker.", null, new ConfigurationManagerAttributes()));
 		if (version.Value >= DistanceVersion) return;
-		sleep.Value = sleepDefault;
-		wake.Value = wakeDefault;
+		if (version.Value < 2)
+		{
+			sleep.Value = sleepDefault;
+			wake.Value = wakeDefault;
+			Plugin.Log.LogInfo($"[GhostConfig] ghost distances moved to new defaults: sleep {sleepDefault:0}m, wake {wakeDefault:0}m");
+		}
+		if (!ghostMode.Value)
+		{
+			ghostMode.Value = true;
+			Plugin.Log.LogInfo("[GhostConfig] Ghost Mode is on by default from zzap v1");
+		}
 		version.Value = DistanceVersion;
-		Plugin.Log.LogInfo($"[GhostConfig] ghost distances moved to new defaults: sleep {sleepDefault:0}m, wake {wakeDefault:0}m");
 	}
 
 	internal static ConfigEntry<T> Bind<T>(ConfigFile file, string key, T value, string description, AcceptableValueBase range = null)

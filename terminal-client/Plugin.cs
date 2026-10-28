@@ -335,10 +335,11 @@ public class Plugin : BaseUnityPlugin
 	{
 		Log = Logger;
 		HarmonyInstance = new Harmony("com.manimal.terminal");
-		GhostMode = TerminalGhostSettings.Legacy(Config, "GhostMode", false, "유령 모드 켜기. 먼 분대의 AI를 쉬게 합니다. Fika 설치 시 작동하지 않습니다.");
+		// zzap v1 (user 10/28): "유령모드는 기본적으로 켜지게", "실험 아님 검증됐잖아".
+		GhostMode = TerminalGhostSettings.Legacy(Config, "GhostMode", true, "유령 모드 켜기. 먼 분대의 AI를 쉬게 합니다. Fika 설치 시 작동하지 않습니다.");
 		GhostSleepDistance = TerminalGhostSettings.Bind(Config, "GhostSleepDistance", 125f, "잠드는 거리(m). 살아 있는 분대원 전원이 모든 사람에게서 이 거리 밖이어야 합니다. 터미널은 시가전 위주라 기본 125m.", new AcceptableValueRange<float>(50f, 1500f));
 		GhostWakeDistance = TerminalGhostSettings.Bind(Config, "GhostWakeDistance", 100f, "깨는 거리(m). 잠드는 거리보다 작게 적용됩니다. 50m 이내 위협은 지연 없이 전원 기상합니다. 기본 100m.", new AcceptableValueRange<float>(10f, 1499f));
-		TerminalGhostSettings.MigrateDistances(Config, GhostSleepDistance, GhostWakeDistance, 125f, 100f);
+		TerminalGhostSettings.MigrateDistances(Config, GhostSleepDistance, GhostWakeDistance, 125f, 100f, GhostMode);
 		GhostResleepDelay = TerminalGhostSettings.Bind(Config, "GhostResleepDelay", 20f, "기상 후 다시 잠들기까지의 최소 대기(초). 일반 기상·피격·50m 근접 모두 적용합니다.", new AcceptableValueRange<float>(2f, 120f));
 		GhostOverlay = TerminalGhostSettings.Bind(Config, "GhostOverlay", true, "화면 오른쪽 위에 유령 모드 상태(잠든 봇·숨긴 이동·모의 싸움)를 표시합니다. 테스트용이며 끄면 표시만 사라집니다.");
 		GhostBrainThrottle = TerminalGhostSettings.Legacy(Config, "GhostBrainThrottle", true, "휴면 AI 정지. 끄면 모든 유령을 복구하고 새 휴면을 중단합니다.");
