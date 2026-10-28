@@ -739,6 +739,15 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	// TerminalGhostMovement roaming: nearest dormant hostile squad within maxDistance
 	// whose position is far from every human. None if a hostile one is already within
 	// arrive range (the contact sweep owns that pair).
+	internal static int RoamingCount()
+	{
+		if (!_instance) return 0;
+		int count = 0;
+		for (int i = 0; i < _instance._groups.Count && i < MaxSquads; i++)
+			if (_instance._groups[i].Dormant && _instance._groups[i].Motion.Roam) count++;
+		return count;
+	}
+
 	internal static bool FindRoamTarget(Squad squad, float maxDistance, float arrive, out BotRecord leader, out Squad target)
 	{
 		leader = null;

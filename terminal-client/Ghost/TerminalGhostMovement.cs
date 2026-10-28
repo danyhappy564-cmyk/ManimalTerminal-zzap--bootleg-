@@ -20,6 +20,7 @@ internal static class TerminalGhostMovement
 		internal float NextStep, LastStep, NextPath, NextOrder;
 		internal Vector3 Goal;
 		internal bool Pending, Moving, Hunt, Roam, FromOrigin;
+		internal float NextRoamSearch;
 		internal TerminalGhostDirector.Squad RoamTarget;
 	}
 
@@ -29,6 +30,14 @@ internal static class TerminalGhostMovement
 	// dormant squad (hidden, reduced speed) toward the nearest dormant HOSTILE squad
 	// so the simulated fight can happen. Roam never wakes anyone on failure.
 	internal const float RoamMaxDistance = 300f, RoamArrive = 25f, RoamSpeedFactor = 0.4f, RoamRetry = 60f;
+	// zzap 10/28 4th raid: roaming worked (up to 11 squads moving, 9 fights) but the raid
+	// fell 66 -> 62 fps, 1% low 48 -> 34. Every 0.5s step teleports each member, and
+	// Player.Teleport runs EnvironmentManager.UpdateEnvironmentForPlayer plus a physics
+	// transform sync. Roam now steps every RoamStepInterval (same speed, 4x fewer
+	// teleports), at most MaxRoaming squads at once, a search every RoamSearchInterval
+	// per squad, and a moving target only forces a new path after RoamReplanMove metres.
+	internal const float RoamStepInterval = 2f, RoamSearchInterval = 5f, RoamReplanMove = 15f, RoamReplanEvery = 30f;
+	internal const int MaxRoaming = 6;
 
 
 	internal static bool CanRepresent(BotOwner bot, TerminalCrewJobs.Rec order)
@@ -67,7 +76,9 @@ internal static class TerminalGhostMovement
 		Stop(squad);
 		if (!Plugin.GhostMovement.Value) return;
 		State state = squad.Motion;
-		if (!BeginOrder(squad, humans) && Plugin.GhostCombat.Value
+		if (BeginOrder(squad, humans) || !Plugin.GhostCombat.Value || Time.time < state.NextRoamSearch) return;
+		state.NextRoamSearch = Time.time + RoamSearchInterval;
+		if (TerminalGhostDirector.RoamingCount() < MaxRoaming
 			&& TerminalGhostDirector.FindRoamTarget(squad, RoamMaxDistance, RoamArrive, out var leader, out var target))
 		{
 			state.Leader = leader;
@@ -177,14 +188,22 @@ internal static class TerminalGhostMovement
 			return;
 		}
 		if (squad.Fight != null) { state.LastStep = now; return; }
-		if (state.Pending || (hunt && (now >= state.NextPath || !state.Hunt)))
+		bool replan = state.Pending || (hunt && (now >= state.NextPath || !state.Hunt));
+		// A roam target that has barely moved keeps the current path (CalculatePath over
+		// a few hundred metres is the director's largest single cost).
+		if (replan && !state.Pending && state.Roam && state.Moving && (goal - state.Goal).sqrMagnitude < RoamReplanMove * RoamReplanMove)
+		{
+			replan = false;
+			state.NextPath = now + RoamReplanEvery;
+		}
+		if (replan)
 		{
 			if (pathsLeft <= 0) { state.LastStep = now; return; }
 			pathsLeft--;
 			state.Pending = false;
 			state.Hunt = hunt;
 			state.Goal = goal;
-			state.NextPath = now + 20f;
+			state.NextPath = now + (state.Roam ? RoamReplanEvery : 20f);
 			if (!NavMesh.SamplePosition(leader.Position, out NavMeshHit start, 3f, NavMesh.AllAreas)
 				|| !NavMesh.SamplePosition(goal, out NavMeshHit end, 3f, NavMesh.AllAreas)
 				|| !NavMesh.CalculatePath(start.position, end.position, NavMesh.AllAreas, state.Path)
@@ -203,9 +222,10 @@ internal static class TerminalGhostMovement
 		}
 		if (!state.Moving || now < state.NextStep || movesLeft <= 0) return;
 		movesLeft--;
-		float travel = Mathf.Clamp(now - state.LastStep, 0f, 0.5f) * Plugin.GhostMovementSpeed.Value * (state.Roam ? RoamSpeedFactor : 1f);
+		float interval = state.Roam ? RoamStepInterval : 0.5f;
+		float travel = Mathf.Clamp(now - state.LastStep, 0f, interval) * Plugin.GhostMovementSpeed.Value * (state.Roam ? RoamSpeedFactor : 1f);
 		state.LastStep = now;
-		state.NextStep = now + 0.5f;
+		state.NextStep = now + interval;
 		// First step starts on the sampled path origin, not the (possibly off-mesh) body.
 		Vector3 next = state.FromOrigin ? state.Corners[0] : leader.Position;
 		int corner = state.Corner;

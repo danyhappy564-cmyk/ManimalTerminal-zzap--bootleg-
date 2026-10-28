@@ -129,7 +129,8 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 			track.Pos = pos;
 			track.RootPos = root;
 			track.Frame = frame;
-			if (frames == 1 && camera && (pos - eye).sqrMagnitude <= 900f) SampleMotion(player, track, step);
+			// 50m: the 4th raid caught civilians within 30m in only one 30s window.
+			if (frames == 1 && camera && (pos - eye).sqrMagnitude <= 2500f) SampleMotion(player, track, step);
 			if (frames == 1 && Mathf.Max(moved, rootMoved) >= 0.2f && camera && (pos - eye).sqrMagnitude <= 2500f)
 			{
 				_nearSteps++;
@@ -154,7 +155,7 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		if (Time.realtimeSinceStartup >= _nextNearReport)
 		{
 			_nextNearReport = Time.realtimeSinceStartup + 30f;
-			Plugin.Log.LogInfo($"[CivMotion] last30s civs<=30m {_motionCivs}: sprint {_sprintFlips}, pose {_poseFlips}, state {_stateFlips}, hands {_handsFlips}, anim {_animFlips}, moving {_moveFlips}, reversals {_reversals}; worst {_worst ?? "-"}");
+			Plugin.Log.LogInfo($"[CivMotion] last30s civs<=50m {_motionCivs}: sprint {_sprintFlips}, pose {_poseFlips}, state {_stateFlips}, hands {_handsFlips}, anim {_animFlips}, moving {_moveFlips}, reversals {_reversals}; worst {_worst ?? "-"}");
 			_motionCivs = _sprintFlips = _poseFlips = _stateFlips = _handsFlips = _animFlips = _moveFlips = _reversals = _worstFlips = 0;
 			_worst = null;
 			Plugin.Log.LogInfo($"[CivJumpNear] last30s cam<=50m one-frame steps>=0.2m: events {_nearSteps}, bots {_nearBots}, rootSteps {_nearRootSteps}, bodyOnly {_nearSteps - _nearRootSteps}; animOwner rawFlips {Patches.CivilianMotionMatchingPatch.RawFlips}, applied {Patches.CivilianMotionMatchingPatch.AppliedFlips}");
@@ -205,8 +206,11 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 						}
 					}
 					catch { }
-					Vector3 target = bot?.Mover != null ? bot.Mover.LastTargetPoint(1f) : Vector3.zero;
-					Plugin.Log.LogInfo($"[CivReverse] {player.Profile?.Nickname} step {step.magnitude:F3}m prev {track.Step.magnitude:F3}m layer={layer} logic={logic} state={state} moving={moving} sprint={sprint} pose={pose:F2} toTarget={(bot?.Mover != null ? Vector3.Distance(player.Position, target) : -1f):F1}m");
+					// LastTargetPoint throws without an active path (10/28 4th raid: 6 throws ate every line).
+					float toTarget = -1f;
+					try { if (bot?.Mover != null) toTarget = Vector3.Distance(player.Position, bot.Mover.LastTargetPoint(1f)); }
+					catch { }
+					Plugin.Log.LogInfo($"[CivReverse] {player.Profile?.Nickname} step {step.magnitude:F3}m prev {track.Step.magnitude:F3}m layer={layer} logic={logic} state={state} moving={moving} sprint={sprint} pose={pose:F2} toTarget={toTarget:F1}m");
 				}
 			}
 			track.Flips += flips;
