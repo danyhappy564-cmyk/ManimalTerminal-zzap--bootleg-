@@ -344,7 +344,7 @@ public class Plugin : BaseUnityPlugin
 		GhostOverlay = TerminalGhostSettings.Bind(Config, "GhostOverlay", true, "화면 오른쪽 위에 유령 모드 상태(잠든 봇·숨긴 이동·모의 싸움)를 표시합니다. 테스트용이며 끄면 표시만 사라집니다.");
 		GhostBrainThrottle = TerminalGhostSettings.Legacy(Config, "GhostBrainThrottle", true, "휴면 AI 정지. 끄면 모든 유령을 복구하고 새 휴면을 중단합니다.");
 		GhostSainThrottle = TerminalGhostSettings.Legacy(Config, "GhostSainThrottle", true, "휴면 봇의 SAIN 갱신을 생략합니다. 끈 뒤에도 진행 중인 복구는 마칩니다.");
-		GhostDiagnostics = TerminalGhostSettings.Legacy(Config, "GhostDiagnostics", true, "30초마다 휴면·이동·전환·기상·SAIN 비용을 기록합니다.");
+		GhostDiagnostics = TerminalGhostSettings.Legacy(Config, "GhostDiagnostics", false, "30초마다 휴면·이동·전환·기상·SAIN 비용을 기록합니다.");
 		GhostCombat = TerminalGhostSettings.Legacy(Config, "GhostCombat", true, "유령끼리 싸움 시뮬레이션. 양쪽이 잠든 채 결과만 적용하며 기상 시 남은 피해를 취소합니다.");
 		GhostCombatRange = TerminalGhostSettings.Legacy(Config, "GhostCombatRange", 60f, "유령끼리 싸움 접촉 거리(m). 벽에 막히면 싸우지 않습니다.", new AcceptableValueRange<float>(10f, 150f));
 		GhostAudio = TerminalGhostSettings.Legacy(Config, "GhostAudio", true, "유령 싸움 소리. 실제 발사·AI 청각 이벤트 없이 소리만 냅니다.");
@@ -413,7 +413,7 @@ public class Plugin : BaseUnityPlugin
 		// 10/28 5~6th raids: the retail civilian controller makes civilians tremble every frame
 		// ([CivPose] 87-99 head flips per 100 frames vs 0.4-0.7 with it off); user chose off.
 		CivilianRetailAnimator = Config.Bind("Terminal", "CivilianRetailAnimator", defaultValue: false, new ConfigDescription("시민 전용 리테일 애니메이션 사용. 켜면 시민이 매 프레임 떨려서 기본은 꺼짐(스캐브 기본 동작). 새로 나오는 시민부터 적용.", null));
-		CivilianJumpProbe = Config.Bind("Terminal", "CivilianJumpProbe", defaultValue: true, new ConfigDescription("diagnostic: when a civilian moves implausibly far in one frame (teleport/stutter), log [CivJump] with its brain layer/logic, mover and animator state. read-only, logs at most once per 2s per civilian / 시민 순간이동 진단 로그", null));
+		CivilianJumpProbe = Config.Bind("Terminal", "CivilianJumpProbe", defaultValue: false, new ConfigDescription("diagnostic: when a civilian moves implausibly far in one frame (teleport/stutter), log [CivJump] with its brain layer/logic, mover and animator state. read-only, logs at most once per 2s per civilian / 시민 순간이동 진단 로그", null));
 		SubtitleSize = Config.Bind("Terminal", "SubtitleSize", 1.4f, new ConfigDescription("cutscene subtitle text size multiplier (1.0 = original) / 컷신 자막 글자 크기 배율 (1.0 = 원래 크기)", new AcceptableValueRange<float>(0.5f, 3f)));
 		KoreanFont = Config.Bind("Terminal", "KoreanFont", "Noto Sans KR", new ConfigDescription("installed Windows font(s) for Korean subtitles/epilogue, comma separated, tried in order; Malgun Gothic is always the fallback / 한국어 자막·엔딩 화면 글꼴(설치된 글꼴 이름, 쉼표로 여러 개). 없으면 맑은 고딕", null));
 		WaterPlanes = Config.Bind("Terminal", "WaterPlanes", defaultValue: true, new ConfigDescription("draw the harbor/pump water planes. turn OFF for one raid as the A/B test for the port-area fps tanking — if the port runs smooth without water, the water shader is the culprit", null));
