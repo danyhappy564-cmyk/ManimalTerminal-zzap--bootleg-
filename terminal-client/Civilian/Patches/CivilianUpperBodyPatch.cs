@@ -27,7 +27,7 @@ internal sealed class CivilianUpperBodyPatch : ModulePatch
 	internal static void Before(Player __instance, out SavedMask __state)
 	{
 		__state = default;
-		if (!TerminalGate.On || __instance == null || __instance.FirstPersonPointOfView)
+		if (!TerminalGate.On || !Plugin.CivilianUpperBodyMask.Value || __instance == null || __instance.FirstPersonPointOfView)
 		{
 			return;
 		}

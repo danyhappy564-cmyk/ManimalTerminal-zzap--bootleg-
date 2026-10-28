@@ -28,6 +28,14 @@ internal sealed class TerminalGhostBody
 	private static readonly AccessTools.FieldRef<LocalPlayer, OfflinePlayerCulling> BotCulling =
 		AccessTools.FieldRefAccess<LocalPlayer, OfflinePlayerCulling>("botPlayerCulling");
 
+	// [BotView]: is EFT's culler currently rendering this body?
+	internal static bool CullerVisible(Player player)
+	{
+		if (!(player is LocalPlayer local) || !local) return false;
+		OfflinePlayerCulling culling = BotCulling(local);
+		return culling != null && culling._player != null && culling.IsVisible;
+	}
+
 	internal static void Reapply(Player player)
 	{
 		if (!(player is LocalPlayer local) || !local) return;

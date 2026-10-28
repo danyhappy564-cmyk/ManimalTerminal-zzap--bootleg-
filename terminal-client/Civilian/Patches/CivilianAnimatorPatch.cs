@@ -42,7 +42,7 @@ internal sealed class CivilianAnimatorPatch : ModulePatch
 		try
 		{
 			WildSpawnType? wildSpawnType = __instance.Profile?.Info?.Settings?.Role;
-			if (!wildSpawnType.HasValue || !CivilianConstants.IsCivilian(wildSpawnType.Value))
+			if (!wildSpawnType.HasValue || !CivilianConstants.IsCivilian(wildSpawnType.Value) || !Plugin.CivilianRetailAnimator.Value)
 			{
 				return;
 			}

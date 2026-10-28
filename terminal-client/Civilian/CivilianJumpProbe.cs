@@ -78,7 +78,9 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		{
 			return;
 		}
-		new GameObject("Terminal_CivilianJumpProbe").AddComponent<CivilianJumpProbe>();
+		var host = new GameObject("Terminal_CivilianJumpProbe");
+		host.AddComponent<CivilianJumpProbe>();
+		BodyJitterProbe.Attach(host);
 	}
 
 	private void LateUpdate()

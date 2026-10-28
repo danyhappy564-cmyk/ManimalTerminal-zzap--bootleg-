@@ -257,6 +257,8 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<string> KoreanFont;
 
 	internal static ConfigEntry<bool> CivilianJumpProbe;
+	internal static ConfigEntry<bool> CivilianUpperBodyMask;
+	internal static ConfigEntry<bool> CivilianRetailAnimator;
 
 	internal static ConfigEntry<float> SubtitleSize;
 
@@ -404,6 +406,9 @@ public class Plugin : BaseUnityPlugin
 		SoundRigFirefight = Config.Bind("Terminal", "SoundRigFirefight", defaultValue: true, new ConfigDescription("distant firefight ambience bursts. turn OFF for one raid as the other half of the frame-chop A/B", null));
 		CutsceneSubtitles = Config.Bind("Terminal", "CutsceneSubtitles", defaultValue: true, new ConfigDescription("show timed subtitles during the cutscenes (live-locale text, speech-segmented timings — edit plugin-data/terminal_subtitle_timings.json to tune)", null));
 		Language = Config.Bind("Terminal", "Language", "Auto", new ConfigDescription("language of Terminal's own subtitles, notifications, prompts and epilogue. Auto = follow the game's language (Korean text from plugin-data/lang/kr.json) / 터미널 자막·알림·안내·엔딩 화면 언어. Auto = 게임 언어를 따름", new AcceptableValueList<string>("Auto", "Korean", "English")));
+		// zzap 10/28: A/B switches for the civilian "trembling" report. Original behaviour = both on.
+		CivilianUpperBodyMask = Config.Bind("Terminal", "CivilianUpperBodyMask", defaultValue: true, new ConfigDescription("시민 상체 보정 끄기(원작 동작). 켜면 시민이 칼/빈손일 때 무기·손·전신 IK를 매 프레임 끕니다. 시민 떨림 비교용: 레이드 중 F12에서 바로 끄고 켜서 차이를 볼 수 있습니다.", null));
+		CivilianRetailAnimator = Config.Bind("Terminal", "CivilianRetailAnimator", defaultValue: true, new ConfigDescription("시민 전용 리테일 애니메이션 사용(원작 동작). 끄면 이후 새로 나오는 시민은 스캐브 기본 애니메이션을 씁니다. 시민 떨림 비교용.", null));
 		CivilianJumpProbe = Config.Bind("Terminal", "CivilianJumpProbe", defaultValue: true, new ConfigDescription("diagnostic: when a civilian moves implausibly far in one frame (teleport/stutter), log [CivJump] with its brain layer/logic, mover and animator state. read-only, logs at most once per 2s per civilian / 시민 순간이동 진단 로그", null));
 		SubtitleSize = Config.Bind("Terminal", "SubtitleSize", 1.4f, new ConfigDescription("cutscene subtitle text size multiplier (1.0 = original) / 컷신 자막 글자 크기 배율 (1.0 = 원래 크기)", new AcceptableValueRange<float>(0.5f, 3f)));
 		KoreanFont = Config.Bind("Terminal", "KoreanFont", "Noto Sans KR", new ConfigDescription("installed Windows font(s) for Korean subtitles/epilogue, comma separated, tried in order; Malgun Gothic is always the fallback / 한국어 자막·엔딩 화면 글꼴(설치된 글꼴 이름, 쉼표로 여러 개). 없으면 맑은 고딕", null));
