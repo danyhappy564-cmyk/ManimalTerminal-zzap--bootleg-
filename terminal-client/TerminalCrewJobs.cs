@@ -628,9 +628,16 @@ internal static class TerminalCrewJobs
 		_eventAt = -1f;
 		_bdHold = null;
 		_bdHoldLooked = false;
-		_armoryBounds = null;
-		_armoryLooked = false;
-		_armoryNavAnchor = null;
+		// zzap perf: the scrub's armory warm-up finishes during map load, but this Reset
+		// runs later at BotsController init and threw the result away, so the first
+		// hangar siege bot paid the whole-scene search mid-raid (10/28 15:31, 297ms, as
+		// Black Division poured in). The box is plain numbers for the same static map:
+		// keep a found result; only a failed lookup is retried.
+		if (!_armoryBounds.HasValue)
+		{
+			_armoryLooked = false;
+			_armoryNavAnchor = null;
+		}
 		PendingForceAttacks.Clear();
 		if ((bool)_forceAttackHost)
 		{

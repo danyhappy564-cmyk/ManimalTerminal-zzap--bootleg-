@@ -320,12 +320,15 @@ internal static class TerminalGhostPatches
 		private static void Finalizer(TerminalTickProfiler.Scope __state) { __state.Dispose(); }
 
 		[HarmonyPostfix]
-		private static void Postfix(ActiveHealthController __instance, float __result)
+		private static void Postfix(ActiveHealthController __instance, float __result, EFT.Ballistics.DamageInfo damageInfo)
 		{
 			// Only this simulation's victim is exempt. Real hits (including nested
 			// damage to another player) still cancel the fight and wake that squad.
 			if (__result > 0f && !TerminalGhostCombatDamage.IsSimulated(__instance.Player))
-				TerminalGhostDirector.Damage(__instance.Player);
+			{
+				IPlayer attacker = damageInfo.Player?.iPlayer;
+				TerminalGhostDirector.Damage(__instance.Player, attacker != null && !attacker.IsAI);
+			}
 		}
 	}
 

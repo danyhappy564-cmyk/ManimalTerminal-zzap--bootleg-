@@ -100,6 +100,7 @@ public class Plugin : BaseUnityPlugin
 	internal static ConfigEntry<float> GhostSleepDistance;
 	internal static ConfigEntry<float> GhostWakeDistance;
 	internal static ConfigEntry<float> GhostResleepDelay;
+	internal static ConfigEntry<bool> GhostOverlay;
 	internal static ConfigEntry<bool> GhostBrainThrottle;
 	internal static ConfigEntry<bool> GhostSainThrottle;
 	internal static ConfigEntry<bool> GhostDiagnostics;
@@ -334,6 +335,7 @@ public class Plugin : BaseUnityPlugin
 		GhostSleepDistance = TerminalGhostSettings.Bind(Config, "GhostSleepDistance", 260f, "잠드는 거리(m). 살아 있는 분대원 전원이 모든 사람에게서 이 거리 밖이어야 합니다.", new AcceptableValueRange<float>(50f, 1500f));
 		GhostWakeDistance = TerminalGhostSettings.Bind(Config, "GhostWakeDistance", 210f, "깨는 거리(m). 잠드는 거리보다 작게 적용됩니다. 50m 이내 위협은 지연 없이 전원 기상합니다.", new AcceptableValueRange<float>(10f, 1499f));
 		GhostResleepDelay = TerminalGhostSettings.Bind(Config, "GhostResleepDelay", 20f, "기상 후 다시 잠들기까지의 최소 대기(초). 일반 기상·피격·50m 근접 모두 적용합니다.", new AcceptableValueRange<float>(2f, 120f));
+		GhostOverlay = TerminalGhostSettings.Bind(Config, "GhostOverlay", true, "화면 왼쪽 위에 유령 모드 상태(잠든 봇·숨긴 이동·모의 싸움)를 표시합니다. 테스트용이며 끄면 표시만 사라집니다.");
 		GhostBrainThrottle = TerminalGhostSettings.Legacy(Config, "GhostBrainThrottle", true, "휴면 AI 정지. 끄면 모든 유령을 복구하고 새 휴면을 중단합니다.");
 		GhostSainThrottle = TerminalGhostSettings.Legacy(Config, "GhostSainThrottle", true, "휴면 봇의 SAIN 갱신을 생략합니다. 끈 뒤에도 진행 중인 복구는 마칩니다.");
 		GhostDiagnostics = TerminalGhostSettings.Legacy(Config, "GhostDiagnostics", true, "30초마다 휴면·이동·전환·기상·SAIN 비용을 기록합니다.");

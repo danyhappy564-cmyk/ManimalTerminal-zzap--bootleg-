@@ -531,6 +531,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	private void LateUpdate()
 	{
 		if (!Running) return;
+		RefreshOverlay();
 		long start = Stopwatch.GetTimestamp();
 		_inMeasuredPass = true;
 		int botLimit4 = 0;
@@ -551,6 +552,41 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 	}
 
 	private double _frameMs;
+
+	// zzap: on-screen status so the player can see Ghost working without reading logs
+	// (10/28 user: "잘 작동되는지 모르겠음"). Counts refresh once per second; OnGUI only
+	// draws the cached string.
+	private float _nextOverlay;
+	private string _overlayText;
+	private GUIStyle _overlayStyle;
+
+	private void RefreshOverlay()
+	{
+		if (!Plugin.GhostOverlay.Value || Time.unscaledTime < _nextOverlay) return;
+		_nextOverlay = Time.unscaledTime + 1f;
+		int dormant = 0, total = 0, moving = 0, examined = 0;
+		foreach (BotRecord record in _bots.Values)
+		{
+			if (++examined > MaxBots) break;
+			if (!record.Bot || record.Bot.IsDead) continue;
+			total++;
+			if (record.Dormant) dormant++;
+		}
+		for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
+			if (_groups[i].Dormant && _groups[i].Motion.Moving) moving++;
+		_overlayText = $"유령 모드: 잠든 봇 {dormant}/{total} · 숨긴 이동 {moving}분대 · 모의 싸움 {_combat.ActiveCount} · 총성 {_combat.Shots}";
+	}
+
+	private void OnGUI()
+	{
+		if (!Plugin.GhostOverlay.Value || !Running || string.IsNullOrEmpty(_overlayText)) return;
+		if (_overlayStyle == null)
+		{
+			_overlayStyle = new GUIStyle(GUI.skin.label) { fontSize = 14 };
+			_overlayStyle.normal.textColor = new Color(0.85f, 0.95f, 1f, 0.9f);
+		}
+		GUI.Label(new Rect(12f, 8f, 900f, 24f), _overlayText, _overlayStyle);
+	}
 
 	private void RecordCost(long start)
 	{
@@ -743,12 +779,15 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		if (_instance && squad != null) _instance.Wake(squad, reason, immediate);
 	}
 
-	internal static void Damage(Player player)
+	internal static void Damage(Player player, bool byHuman)
 	{
 		if (TerminalGhostCombatDamage.IsSimulated(player)) return;
 		BotOwner bot = player?.AIData?.BotOwner;
 		if (!_instance || !bot || !_instance._bots.TryGetValue(bot, out var record)) return;
-		record.LastDamageAt = Time.time;
+		// zzap: only human damage holds the squad awake for 30s. Bot-vs-bot hits used to
+		// block every distant fighting squad, so no fight ever reached the simulation
+		// (10/28 15시: fights 0, ghosted-awake 0 all raid). A real hit still wakes now.
+		if (byHuman) record.LastDamageAt = Time.time;
 		_instance.Wake(record.Squad, WakeReason.Damage);
 	}
 
