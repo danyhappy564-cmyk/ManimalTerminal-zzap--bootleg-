@@ -574,7 +574,7 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		}
 		for (int i = 0; i < _groups.Count && i < MaxSquads; i++)
 			if (_groups[i].Dormant && _groups[i].Motion.Moving) moving++;
-		_overlayText = $"유령 모드: 잠든 봇 {dormant}/{total} · 숨긴 이동 {moving}분대 · 모의 싸움 {_combat.ActiveCount} · 총성 {_combat.Shots}";
+		_overlayText = $"유령 모드: 잠든 봇 {dormant}/{total} · 숨긴 이동 {moving}분대 · 모의 싸움 {_combat.ActiveCount}(누적 {_combat.FightsStarted}) · 총성 {_combat.Shots}";
 	}
 
 	private void OnGUI()
@@ -582,10 +582,11 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 		if (!Plugin.GhostOverlay.Value || !Running || string.IsNullOrEmpty(_overlayText)) return;
 		if (_overlayStyle == null)
 		{
-			_overlayStyle = new GUIStyle(GUI.skin.label) { fontSize = 14 };
+			_overlayStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, alignment = TextAnchor.UpperRight };
 			_overlayStyle.normal.textColor = new Color(0.85f, 0.95f, 1f, 0.9f);
 		}
-		GUI.Label(new Rect(12f, 8f, 900f, 24f), _overlayText, _overlayStyle);
+		// Top-right (10/28 user request); right-aligned so the line grows leftwards.
+		GUI.Label(new Rect(Screen.width - 912f, 8f, 900f, 24f), _overlayText, _overlayStyle);
 	}
 
 	private void RecordCost(long start)
@@ -635,6 +636,8 @@ internal sealed class TerminalGhostDirector : MonoBehaviour
 			Plugin.Log.LogInfo($"[Ghost] dormant {dormant}/total {total}, sleeps {_sleeps}/wakes {_wakes}, fights {_combat.ActiveCount}, shots {_combat.Shots}, moving {moving}, ghosted-awake {_ghostedAwake}, scopeWakes {_scopeWakes}, staggered {_staggered}, last30s avg {(_samples == 0 ? 0 : _sumMs / _samples):F3} max {_maxMs:F3} ms, sain {sainMs:F2}ms/frame (skipped {sainSkipped} calls)"
 				+ $", wokeBy: near {_wokeBy[(int)WakeReason.Near]}, near50 {_wokeBy[(int)WakeReason.Near50]}, scope {_wokeBy[(int)WakeReason.Scope]}, target {_wokeBy[(int)WakeReason.Target]}, damage {_wokeBy[(int)WakeReason.Damage]}, protect {_wokeBy[(int)WakeReason.Protect]}, move {_wokeBy[(int)WakeReason.Move]}, encounter {_wokeBy[(int)WakeReason.Encounter]}, fault {_wokeBy[(int)WakeReason.Fault]}, other {_wokeBy[(int)WakeReason.Other]}"
 				+ $", blocked: boss {_blocked[(int)BlockReason.Boss]}, crew {_blocked[(int)BlockReason.Crew]}, zone {_blocked[(int)BlockReason.Zone]}, stage {_blocked[(int)BlockReason.Stage]}, young {_blocked[(int)BlockReason.Young]}, damaged {_blocked[(int)BlockReason.Damaged]}, notActive {_blocked[(int)BlockReason.NotActive]}, hands {_blocked[(int)BlockReason.Hands]}, humanFight {_blocked[(int)BlockReason.HumanFight]}, sain {_blocked[(int)BlockReason.Sain]}, near {_blocked[(int)BlockReason.Near]}, block {_blocked[(int)BlockReason.Block]}, cutscene {_blocked[(int)BlockReason.Cutscene]}, civilian {_blocked[(int)BlockReason.Civilian]}, ruaf {_blocked[(int)BlockReason.Ruaf]}, placement {_blocked[(int)BlockReason.Placement]}, invalid {_blocked[(int)BlockReason.Invalid]}, noHuman {_blocked[(int)BlockReason.NoHuman]}, type {_blocked[(int)BlockReason.Type]}, scope {_blocked[(int)BlockReason.Scope]}");
+			Plugin.Log.LogInfo($"[GhostContact] last30s tries {_combat.ContactTries}, ineligible {_combat.ContactIneligible}, notHostile {_combat.ContactNotHostile}, far {_combat.ContactFar}, chance {_combat.ContactChance}, sight {_combat.ContactSight}; fights started total {_combat.FightsStarted}");
+			_combat.ResetContactStats();
 			if (handsLong > 0)
 				Plugin.Log.LogInfo($"[GhostHands] same flags >=20s: bots {handsLong}, cannotInteract {cannotInteract}, interaction {interaction}, changing {changing}, medicine {medicine}, missing {missing}");
 		}

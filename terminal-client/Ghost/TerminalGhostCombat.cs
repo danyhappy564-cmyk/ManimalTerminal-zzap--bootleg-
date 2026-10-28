@@ -48,6 +48,11 @@ internal sealed class TerminalGhostCombat
 	private int _count, _scanA, _scanB, _pairsLeft, _pumpCursor;
 	private float _nextSweep;
 	internal int ActiveCount { get; private set; }
+	// zzap: 10/28 raid showed fights 0 in every 30s report. ActiveCount is only the
+	// current number, so a short 8-20s fight between reports was invisible; these
+	// count every contact attempt and where it stopped (reset by the director report).
+	internal int FightsStarted, ContactTries, ContactIneligible, ContactNotHostile, ContactFar, ContactChance, ContactSight;
+	internal void ResetContactStats() { ContactTries = ContactIneligible = ContactNotHostile = ContactFar = ContactChance = ContactSight = 0; }
 	internal int Shots => _audio.Shots;
 	internal void ResetShots() { _audio.ResetShots(); }
 
@@ -218,11 +223,13 @@ internal sealed class TerminalGhostCombat
 
 	private void Contact(TerminalGhostDirector.Squad a, TerminalGhostDirector.Squad b, float now, float encounterRange = 0f)
 	{
-		if (!Eligible(a) || !Eligible(b) || !NearestHostile(a, b, out var nearestA, out var nearestB, out float nearestSq)) return;
+		ContactTries++;
+		if (!Eligible(a) || !Eligible(b)) { ContactIneligible++; return; }
+		if (!NearestHostile(a, b, out var nearestA, out var nearestB, out float nearestSq)) { ContactNotHostile++; return; }
 		// An 85m conversion must get a contact attempt at 85m; otherwise two static
 		// squads could sleep forever outside the ordinary 60m contact range.
 		float range = Mathf.Clamp(Mathf.Max(Plugin.GhostCombatRange.Value, encounterRange), 10f, 150f);
-		if (nearestSq > range * range) return;
+		if (nearestSq > range * range) { ContactFar++; return; }
 		// Installed BotsGroup.IsEnemy(IPlayer): live Enemies list (existing grudges).
 		// IsPlayerEnemy(IPlayer): Settings friendly/warn/enemy bot ROLE lists, then
 		// side/loyalty rules. Same Savage side alone does not establish friendship.
@@ -233,8 +240,10 @@ internal sealed class TerminalGhostCombat
 		Cooldown(a, b, now + RetryCooldown);
 		float chance = distance <= 20f ? 1f : Mathf.Lerp(0.85f, 0.25f, Mathf.InverseLerp(20f, range, distance));
 		chance = Mathf.Min(1f, chance * Frequency(0.5f, 1f, 1.5f));
-		if (chance < 1f && Random.value >= chance) return;
-		if (!ClearSight(pa.Position + Vector3.up * 1.5f, pb.Position + Vector3.up * 1.5f)) return;
+		if (chance < 1f && Random.value >= chance) { ContactChance++; return; }
+		// Within 30m live bots engage by sound through walls and corners; Terminal's
+		// industrial blocks rarely give a clean 60m line, so sight gates only farther pairs.
+		if (distance > 30f && !ClearSight(pa.Position + Vector3.up * 1.5f, pb.Position + Vector3.up * 1.5f)) { ContactSight++; return; }
 		for (int i = 0; i < _fights.Length; i++)
 		{
 			if (_fights[i].Active) continue;
@@ -294,6 +303,7 @@ internal sealed class TerminalGhostCombat
 		fight.Active = true;
 		a.Fight = b.Fight = fight; // establish cancellation ownership before any fallible setup
 		ActiveCount++;
+		FightsStarted++;
 		fight.Started = now;
 		fight.Ends = now + Random.Range(8f, 20f);
 		fight.Distance = distance;

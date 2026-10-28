@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using UnityEngine;
 
 namespace Manimal.Terminal.Civilian.Patches;
 
@@ -13,6 +15,30 @@ internal sealed class CivilianMotionMatchingPatch : ModulePatch
 	internal const int NativeFullBody = 1;
 
 	internal const int NativeUpperBody = 2;
+
+	// zzap 10/28: civilians still "tremble" with zero position steps ([CivJumpNear]
+	// events 0). The full-body owner below is re-decided every Resolve from soft
+	// inputs (MotionRequested, PoseLevel, Transition states) that can blink for a
+	// frame, handing the body between MotionMagic and the native animator. Debounce:
+	// a new owner must hold for HoldSeconds. Prone/dead stay immediate.
+	private const float HoldSeconds = 0.25f;
+
+	private struct Hold
+	{
+		internal bool Full, Raw, Known;
+
+		internal float PendingSince;
+	}
+
+	private static readonly Dictionary<int, Hold> Holds = new Dictionary<int, Hold>();
+
+	internal static int RawFlips, AppliedFlips;
+
+	internal static void ClearAll()
+	{
+		Holds.Clear();
+		RawFlips = AppliedFlips = 0;
+	}
 
 	protected override MethodBase GetTargetMethod()
 	{
@@ -36,11 +62,31 @@ internal sealed class CivilianMotionMatchingPatch : ModulePatch
 		if (wildSpawnType.HasValue && CivilianConstants.IsCivilian(wildSpawnType.Value))
 		{
 			__result |= 2;
-			if (!CivilianFleeState.TryGet(player.AIData?.BotOwner, out var state) || !state.MotionRequested || state.InCover || player.IsInPronePose || player.PoseLevel < 0.85f || !IsLocomotion(player.MovementContext?.CurrentState?.Name) || (player.CurrentManagedState != null && !IsLocomotion(player.CurrentManagedState.Name)))
+			bool raw = !CivilianFleeState.TryGet(player.AIData?.BotOwner, out var state) || !state.MotionRequested || state.InCover || player.IsInPronePose || player.PoseLevel < 0.85f || !IsLocomotion(player.MovementContext?.CurrentState?.Name) || (player.CurrentManagedState != null && !IsLocomotion(player.CurrentManagedState.Name));
+			if (Debounced(player, raw, hard: player.IsInPronePose))
 			{
 				__result |= 1;
 			}
 		}
+	}
+
+	private static bool Debounced(Player player, bool raw, bool hard)
+	{
+		int id = player.GetInstanceID();
+		float now = Time.time;
+		if (!Holds.TryGetValue(id, out Hold hold) || !hold.Known)
+		{
+			if (Holds.Count < 512) Holds[id] = new Hold { Full = raw, Raw = raw, Known = true, PendingSince = -1f };
+			return raw;
+		}
+		if (raw != hold.Raw) RawFlips++;
+		hold.Raw = raw;
+		if (raw == hold.Full) hold.PendingSince = -1f;
+		else if (hard) { hold.Full = raw; hold.PendingSince = -1f; AppliedFlips++; }
+		else if (hold.PendingSince < 0f) hold.PendingSince = now;
+		else if (now - hold.PendingSince >= HoldSeconds) { hold.Full = raw; hold.PendingSince = -1f; AppliedFlips++; }
+		Holds[id] = hold;
+		return hold.Full;
 	}
 
 	private static bool IsLocomotion(EPlayerState? state)

@@ -66,6 +66,7 @@ internal static class TerminalGate
 			CivilianFleeState.ClearAll();
 			CivilianUnstickHelper.ClearAll();
 			CivilianMeleeEnforcer.ClearAll();
+			Civilian.Patches.CivilianMotionMatchingPatch.ClearAll();
 			TerminalCrewJobs.Reset();
 			TerminalShaderRebind.ResetForRaid();
 			TerminalRigFill.ResetForRaid();

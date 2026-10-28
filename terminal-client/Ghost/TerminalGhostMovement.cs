@@ -131,7 +131,7 @@ internal static class TerminalGhostMovement
 			state.Hunt = hunt;
 			state.Goal = goal;
 			state.NextPath = now + 20f;
-			if (!NavMesh.SamplePosition(leader.Position, out NavMeshHit start, 1.5f, NavMesh.AllAreas)
+			if (!NavMesh.SamplePosition(leader.Position, out NavMeshHit start, 3f, NavMesh.AllAreas)
 				|| !NavMesh.SamplePosition(goal, out NavMeshHit end, 3f, NavMesh.AllAreas)
 				|| !NavMesh.CalculatePath(start.position, end.position, NavMesh.AllAreas, state.Path)
 				|| state.Path.status != NavMeshPathStatus.PathComplete)
@@ -157,7 +157,9 @@ internal static class TerminalGhostMovement
 		{
 			Vector3 point = state.Corners[corner];
 			float length = Vector3.Distance(next, point);
-			if (length <= travel) { next = point; travel -= length; corner++; }
+			// Stop AT a corner: one step never cuts across it, so the straight
+			// NavMesh.Raycast below stays inside the computed path.
+			if (length <= travel) { next = point; corner++; break; }
 			else { next = Vector3.MoveTowards(next, point, travel); travel = 0f; }
 		}
 		// Prepare the whole formation before teleporting ANY member. Failed samples
@@ -167,37 +169,24 @@ internal static class TerminalGhostMovement
 			var record = squad.Members[i];
 			BotOwner bot = record.Bot;
 			if (!bot || bot.IsDead || !record.Dormant) continue;
-			Vector3 desired = next + record.GhostOffset;
-			if (!NavMesh.SamplePosition(desired, out NavMeshHit hit, 1.5f, NavMesh.AllAreas))
+			string reason = Place(bot, next + record.GhostOffset, out Vector3 placed, out bool sampleMiss);
+			// zzap 10/28: every [GhostMove] give-back was NavMesh.Raycast — a follower's
+			// 6m offset point sits behind a wall/edge the leader's path never touches.
+			// Collapse that follower onto the leader's own path point instead of waking.
+			if (reason != null && record != state.Leader && record.GhostOffset.sqrMagnitude > 0.01f)
 			{
-				if (++state.SampleFailures >= 5) GiveBack(squad, "five sample failures");
-				return;
+				record.GhostOffset = Vector3.zero;
+				reason = Place(bot, next, out placed, out sampleMiss);
 			}
-			if (Mathf.Abs(hit.position.y - desired.y) > 1.5f)
+			if (reason != null)
 			{
-				GiveBack(squad, $"height delta={Mathf.Abs(hit.position.y - desired.y):F2}m");
-				return;
-			}
-			if (NavMesh.Raycast(bot.Position, hit.position, out _, NavMesh.AllAreas))
-			{
-				GiveBack(squad, "NavMesh.Raycast");
-				return;
-			}
-			// Already one metre above BOTH endpoints; keep the obstruction guard.
-			if (Physics.Linecast(bot.Position + Vector3.up, hit.position + Vector3.up, out RaycastHit obstacle,
-				LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore))
-			{
-				GiveBack(squad, $"Linecast@1m collider={obstacle.collider?.name} layer={obstacle.collider?.gameObject.layer} point={obstacle.point}");
-				return;
-			}
-			if (CrossesIndoor(bot.Position, hit.position, out bool sampleLimit))
-			{
-				GiveBack(squad, sampleLimit ? "CrossesIndoor sample limit (>12m)" : "CrossesIndoor volume");
+				if (sampleMiss) { if (++state.SampleFailures >= 5) GiveBack(squad, reason); }
+				else GiveBack(squad, reason);
 				return;
 			}
 			// This check also covers a compacted follower offset crossing the wake boundary.
-			if (TerminalGhostDirector.WakeAtDestination(squad, hit.position)) return;
-			state.Destinations[i] = hit.position;
+			if (TerminalGhostDirector.WakeAtDestination(squad, placed)) return;
+			state.Destinations[i] = placed;
 		}
 		state.SampleFailures = 0;
 		int memberCount = squad.Members.Count;
@@ -216,6 +205,31 @@ internal static class TerminalGhostMovement
 		}
 		state.Corner = corner;
 		if (corner >= state.Count) Stop(squad);
+	}
+
+	// Returns null when the member may be moved to `placed`, else the give-back reason.
+	private static string Place(BotOwner bot, Vector3 desired, out Vector3 placed, out bool sampleMiss)
+	{
+		placed = default;
+		sampleMiss = false;
+		if (!NavMesh.SamplePosition(desired, out NavMeshHit hit, 1.5f, NavMesh.AllAreas))
+		{
+			sampleMiss = true;
+			return "five sample failures";
+		}
+		if (Mathf.Abs(hit.position.y - desired.y) > 1.5f) return $"height delta={Mathf.Abs(hit.position.y - desired.y):F2}m";
+		// The body stands slightly above/off the mesh; NavMesh.Raycast from an off-mesh
+		// origin reports a hit at once. Start from the member's own mesh point.
+		Vector3 from = NavMesh.SamplePosition(bot.Position, out NavMeshHit origin, 1.5f, NavMesh.AllAreas) ? origin.position : bot.Position;
+		if (NavMesh.Raycast(from, hit.position, out _, NavMesh.AllAreas)) return "NavMesh.Raycast";
+		// Already one metre above BOTH endpoints; keep the obstruction guard.
+		if (Physics.Linecast(bot.Position + Vector3.up, hit.position + Vector3.up, out RaycastHit obstacle,
+			LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore))
+			return $"Linecast@1m collider={obstacle.collider?.name} layer={obstacle.collider?.gameObject.layer} point={obstacle.point}";
+		if (CrossesIndoor(bot.Position, hit.position, out bool sampleLimit))
+			return sampleLimit ? "CrossesIndoor sample limit (>12m)" : "CrossesIndoor volume";
+		placed = hit.position;
+		return null;
 	}
 
 	private static void GiveBack(TerminalGhostDirector.Squad squad, string reason)

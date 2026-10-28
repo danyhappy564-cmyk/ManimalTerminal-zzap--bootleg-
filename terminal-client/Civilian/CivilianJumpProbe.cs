@@ -134,7 +134,8 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 		if (Time.realtimeSinceStartup >= _nextNearReport)
 		{
 			_nextNearReport = Time.realtimeSinceStartup + 30f;
-			Plugin.Log.LogInfo($"[CivJumpNear] last30s cam<=50m one-frame steps>=0.2m: events {_nearSteps}, bots {_nearBots}, rootSteps {_nearRootSteps}, bodyOnly {_nearSteps - _nearRootSteps}");
+			Plugin.Log.LogInfo($"[CivJumpNear] last30s cam<=50m one-frame steps>=0.2m: events {_nearSteps}, bots {_nearBots}, rootSteps {_nearRootSteps}, bodyOnly {_nearSteps - _nearRootSteps}; animOwner rawFlips {Patches.CivilianMotionMatchingPatch.RawFlips}, applied {Patches.CivilianMotionMatchingPatch.AppliedFlips}");
+			Patches.CivilianMotionMatchingPatch.RawFlips = Patches.CivilianMotionMatchingPatch.AppliedFlips = 0;
 			_nearSteps = _nearBots = _nearRootSteps = 0;
 			_nearWindow++;
 		}
