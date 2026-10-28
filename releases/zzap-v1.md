@@ -1,4 +1,4 @@
-# Manimal Terminal 0.2.20 zzap (9ebee69)
+# Manimal Terminal 0.2.20 zzap v1
 
 [한국어](#한국어) · [English](#english)
 
@@ -10,7 +10,7 @@
 > 배포: 디스코드 · 아카라이브 (SPT 포지에는 올리지 않습니다)
 > 원작자 버전이 아니니 원작자분께 문의하지 말아 주세요.
 
-배포 파일: `Manimal-Terminal-0.2.20-zzap-9ebee69.zip`
+배포 파일: `Manimal-Terminal-0.2.20-zzap-v1.zip`
 
 ### 감사의 말
 
@@ -53,14 +53,14 @@ manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올�
 - 시민이 몇 미터씩 순간이동하던 문제를 고쳤습니다.
 - 시민이 제자리에서 덜덜 떨던 문제는 원인이 시민 전용 애니메이션이라 기본으로 껐습니다. 대신 시민이 스캐브 기본 자세(주먹 쥔 자세)로 보입니다. F12 → 터미널 → "시민: 전용 애니메이션"으로 다시 켤 수 있지만 떨림이 돌아옵니다.
 
-### 유령 모드 (실험, 기본 꺼짐)
+### 유령 모드 (기본 켜짐)
 
 플레이어에게서 먼 분대를 재워 부담을 줄이는 기능입니다.
 
 - 모든 플레이어에게서 125m 밖이면 잠들고, 100m 안으로 오면 깹니다. 맞거나 스코프로 보면 바로 깹니다.
 - 잠든 적 분대끼리는 숨은 채로 서로 다가가 보이지 않는 곳에서 모의로 싸우고, 멀리서 총소리가 납니다.
-- 켜는 법: F12 → Manimal-Terminal → 터미널 · 유령 모드 → "유령 모드 켜기"
-- 켜면 화면 오른쪽 위에 상태 줄이 뜹니다. 같은 곳의 "상태 표시"를 끄면 사라집니다.
+- 끄는 법: F12 → Manimal-Terminal → 터미널 · 유령 모드 → "유령 모드 켜기"를 끕니다.
+- 화면 오른쪽 위에 상태 줄이 뜹니다. 같은 곳의 "상태 표시"를 끄면 사라집니다.
 - Fika(멀티)를 쓰면 작동하지 않습니다.
 
 ### 필요한 것
@@ -80,7 +80,7 @@ manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올�
 
 | 파일 | 내용 |
 |---|---|
-| `BepInEx/plugins/ManimalTerminal/ManimalTerminalClient.dll` | 터미널 모드 본체 (SHA256 앞 `99efc42f2a2a0f58`) |
+| `BepInEx/plugins/ManimalTerminal/ManimalTerminalClient.dll` | 터미널 모드 본체 (SHA256 앞 `ab144db3c17d3b23`) |
 | `BepInEx/plugins/ManimalTerminal/plugin-data/lang/kr.json` | 자막·알림·버튼 한국어 |
 | `BepInEx/plugins/ManimalTerminal/plugin-data/epilogue/terminal_epilogue.kr.json` | 엔딩 화면 한국어 |
 | `SPT_Runtime/user/mods/ManimalTerminal/terminal-server.dll` | 서버 모드 (SHA256 앞 `c34ec80d8cd30a03`) |
@@ -110,7 +110,7 @@ manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올�
 > Shared on Discord and Arca.live only (not on the SPT Forge)
 > This is NOT the original author's build. Please do not contact the original author about it.
 
-File: `Manimal-Terminal-0.2.20-zzap-9ebee69.zip`
+File: `Manimal-Terminal-0.2.20-zzap-v1.zip`
 
 ### Credits
 
@@ -153,13 +153,13 @@ Measured on the developer's PC, one Terminal raid per sample. Your numbers will 
 - Fixed civilians teleporting a few metres at a time.
 - Civilians shaking in place: the cause is the civilian-specific animation, so it is now off by default. Civilians use the default scav stance (fists up) instead. You can turn it back on under F12 → Terminal → "Civilian: retail animation", but the shaking returns.
 
-### Ghost Mode (experimental, off by default)
+### Ghost Mode (on by default)
 
 Puts squads far from every player to sleep to save performance.
 
 - Squads sleep when all members are more than 125 m from every player and wake within 100 m. Getting shot or being looked at through a scope wakes them immediately.
 - Sleeping hostile squads walk toward each other while hidden and fight a simulated battle out of sight; you hear the gunfire from afar.
-- To enable: F12 → Manimal-Terminal → Terminal · Ghost Mode → "Ghost Mode on".
+- To turn it off: F12 → Manimal-Terminal → Terminal · Ghost Mode → untick "Ghost Mode on".
 - A status line appears in the top-right corner. Turn off "Status display" in the same section to hide it.
 - Does not work with Fika (multiplayer).
 
@@ -178,7 +178,7 @@ Puts squads far from every player to sleep to save performance.
 
 ### Files (the 8 that differ from the original 0.2.20)
 
-Client DLL (`99efc42f2a2a0f58`), two client Korean data files, server DLL (`c34ec80d8cd30a03`), and four server Korean data files (locales, quests, achievements, Lightkeeper dialogue). Everything else, including the map bundles, comes from the original release.
+Client DLL (`ab144db3c17d3b23`), two client Korean data files, server DLL (`c34ec80d8cd30a03`), and four server Korean data files (locales, quests, achievements, Lightkeeper dialogue). Everything else, including the map bundles, comes from the original release.
 
 ### Known issues
 

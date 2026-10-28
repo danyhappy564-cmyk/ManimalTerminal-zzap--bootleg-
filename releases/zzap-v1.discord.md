@@ -2,7 +2,7 @@
 
 === 메시지 1 (한국어) ===
 
-## Manimal Terminal 0.2.20 zzap (9ebee69)
+## Manimal Terminal 0.2.20 zzap v1
 비공식 수정 빌드 · 원작 **Manimal Terminal 0.2.20** 위에 덮어쓰기 · 원작자분께 문의하지 말아 주세요.
 
 **무엇이 좋아졌나** (개발자 PC, 터미널 한 판 기준)
@@ -18,9 +18,9 @@
 - 뒤로 걸어오는 이벤트 스캐브, 안 보이는 봇, 시민 순간이동 수정
 - 시민 전용 애니메이션 기본 꺼짐 (떨림 원인) → 시민이 주먹 쥔 자세로 보임
 
-**유령 모드 (실험, 기본 꺼짐)**
+**유령 모드 (기본 켜짐)**
 125m 밖 분대를 재우고 100m 안에서 깨움. 잠든 적 분대끼리 숨은 채 다가가 모의로 싸우고 멀리서 총소리가 납니다. Fika에서는 작동 안 함.
-켜기: F12 → Manimal-Terminal → 터미널 · 유령 모드 → 유령 모드 켜기
+끄기: F12 → Manimal-Terminal → 터미널 · 유령 모드 → 유령 모드 켜기 해제
 
 **설치**: 게임·서버 끄기 → `BepInEx\plugins\ManimalTerminal`, `SPT_Runtime\user\mods\ManimalTerminal` 백업 → 압축 안 두 폴더를 SPT 폴더에 덮어쓰기
 문제 생기면 `BepInEx\LogOutput.log` 같이 보내 주세요.
@@ -33,7 +33,7 @@ chazut 후원: <https://ko-fi.com/chazut>
 
 === 메시지 2 (English) ===
 
-## Manimal Terminal 0.2.20 zzap (9ebee69)
+## Manimal Terminal 0.2.20 zzap v1
 Unofficial patch build · drop-in overwrite for the original **Manimal Terminal 0.2.20** · please don't contact the original author about it.
 
 **What got better** (developer PC, one Terminal raid per sample)
@@ -48,9 +48,9 @@ Unofficial patch build · drop-in overwrite for the original **Manimal Terminal 
 - Fixed backwards-walking event scavs, invisible bots, teleporting civilians
 - Civilian retail animation off by default (it caused the shaking) → civilians use the scav stance
 
-**Ghost Mode (experimental, off by default)**
+**Ghost Mode (on by default)**
 Squads farther than 125 m sleep and wake within 100 m. Sleeping hostile squads close in while hidden and fight a simulated battle you hear from afar. Not for Fika.
-Enable: F12 → Manimal-Terminal → Terminal · Ghost Mode → Ghost Mode on
+Turn off: F12 → Manimal-Terminal → Terminal · Ghost Mode → untick Ghost Mode on
 
 **Install**: close game and server → back up `BepInEx\plugins\ManimalTerminal` and `SPT_Runtime\user\mods\ManimalTerminal` → copy both folders from the zip into your SPT folder and overwrite.
 Please attach `BepInEx\LogOutput.log` to bug reports.

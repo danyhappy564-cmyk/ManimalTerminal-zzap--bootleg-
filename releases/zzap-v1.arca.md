@@ -1,6 +1,6 @@
 <!-- 아카라이브용 글. 제목과 본문을 따로 붙여 넣으세요. 표는 아카 편집기에서 표로 다시 만들거나 그대로 글로 두어도 됩니다. zip은 첨부 또는 외부 링크. -->
 
-제목: [SPT 4.1] Manimal Terminal 0.2.20 zzap 수정 빌드 (한글화 · 렉 감소 · 유령 모드)
+제목: [SPT 4.1] Manimal Terminal 0.2.20 zzap v1 수정 빌드 (한글화 · 렉 감소 · 유령 모드)
 
 ---
 
@@ -37,13 +37,13 @@
 - 시민이 제자리에서 덜덜 떨던 문제: 원인이 시민 전용 애니메이션이라 기본으로 끔
   → 시민이 스캐브 기본 자세(주먹 쥔 자세)로 보입니다. F12에서 다시 켤 수 있지만 떨림이 돌아옵니다.
 
-■ 유령 모드 (실험, 기본 꺼짐)
+■ 유령 모드 (기본 켜짐)
 
 플레이어에게서 먼 분대를 재워 부담을 줄이는 기능입니다.
 - 모든 플레이어에게서 125m 밖이면 잠들고 100m 안으로 오면 깹니다. 맞거나 스코프로 보면 바로 깹니다.
 - 잠든 적 분대끼리는 숨은 채로 다가가 보이지 않는 곳에서 모의로 싸우고, 멀리서 총소리가 납니다. (한 판에 6~13번 정도)
-- 켜는 법: F12 → Manimal-Terminal → 터미널 · 유령 모드 → "유령 모드 켜기"
-- 켜면 화면 오른쪽 위에 상태 줄이 뜹니다. 같은 곳 "상태 표시"를 끄면 사라집니다.
+- 끄는 법: F12 → Manimal-Terminal → 터미널 · 유령 모드 → "유령 모드 켜기"를 끕니다.
+- 화면 오른쪽 위에 상태 줄이 뜹니다. 같은 곳 "상태 표시"를 끄면 사라집니다.
 - Fika(멀티)에서는 작동하지 않습니다.
 
 ■ 설치
@@ -70,4 +70,4 @@ manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올�
 manimal1920 후원: https://ko-fi.com/manimal1920
 chazut 후원: https://ko-fi.com/chazut
 
-자세한 변경 이력: https://github.com/danyhappy564-cmyk/ManimalTerminal-zzap--bootleg-/blob/master/releases/v0.2.20-zzap-9ebee69.md
+자세한 변경 이력: https://github.com/danyhappy564-cmyk/ManimalTerminal-zzap--bootleg-/blob/master/releases/zzap-v1.md
