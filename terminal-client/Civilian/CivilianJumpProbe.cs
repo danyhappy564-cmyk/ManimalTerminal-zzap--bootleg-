@@ -51,7 +51,7 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 	// of the camera, every frame-to-frame flip of the inputs that drive the body animator
 	// plus direction reversals of the root (back-and-forth "shuffling").
 	private int _motionCivs, _sprintFlips, _poseFlips, _stateFlips, _handsFlips, _animFlips, _moveFlips, _reversals;
-	private int _worstFlips;
+	private int _worstFlips, _reverseLogs;
 	private string _worst;
 
 	private const float MaxPlausibleSpeed = 9f;
@@ -186,7 +186,29 @@ internal sealed class CivilianJumpProbe : MonoBehaviour
 			if (state != track.State) { _stateFlips++; flips++; }
 			if (hands != track.Hands) { _handsFlips++; flips++; }
 			if (anim != track.Anim) { _animFlips++; flips++; }
-			if (step.sqrMagnitude > 0.0001f && track.Step.sqrMagnitude > 0.0001f && Vector3.Dot(step, track.Step) < 0f) { _reversals++; track.Reversals++; flips++; }
+			if (step.sqrMagnitude > 0.0001f && track.Step.sqrMagnitude > 0.0001f && Vector3.Dot(step, track.Step) < 0f)
+			{
+				_reversals++;
+				track.Reversals++;
+				flips++;
+				// 10/28 3rd raid: 9 reversals in 30s for 2 civilians - say who drove each one.
+				if (_reverseLogs < 60)
+				{
+					_reverseLogs++;
+					string layer = "?", logic = "?";
+					try
+					{
+						if (bot != null)
+						{
+							layer = BrainManager.GetActiveLayerName(bot) ?? "<none>";
+							logic = BrainManager.GetActiveLogic(bot)?.GetType().Name ?? "<none>";
+						}
+					}
+					catch { }
+					Vector3 target = bot?.Mover != null ? bot.Mover.LastTargetPoint(1f) : Vector3.zero;
+					Plugin.Log.LogInfo($"[CivReverse] {player.Profile?.Nickname} step {step.magnitude:F3}m prev {track.Step.magnitude:F3}m layer={layer} logic={logic} state={state} moving={moving} sprint={sprint} pose={pose:F2} toTarget={(bot?.Mover != null ? Vector3.Distance(player.Position, target) : -1f):F1}m");
+				}
+			}
 			track.Flips += flips;
 			if (track.Flips > _worstFlips)
 			{

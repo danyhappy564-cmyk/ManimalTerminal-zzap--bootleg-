@@ -19,7 +19,7 @@ internal static class TerminalGhostMovement
 		internal int Count, Corner, SampleFailures;
 		internal float NextStep, LastStep, NextPath, NextOrder;
 		internal Vector3 Goal;
-		internal bool Pending, Moving, Hunt, Roam;
+		internal bool Pending, Moving, Hunt, Roam, FromOrigin;
 		internal TerminalGhostDirector.Squad RoamTarget;
 	}
 
@@ -196,6 +196,7 @@ internal static class TerminalGhostMovement
 			state.Count = state.Path.GetCornersNonAlloc(state.Corners);
 			if (state.Count < 2 || state.Count >= MaxCorners) { GiveBack(squad, "corner limit"); return; }
 			state.Corner = 1;
+			state.FromOrigin = true;
 			state.Moving = true;
 			state.LastStep = now;
 			state.NextStep = now + 0.5f;
@@ -205,7 +206,8 @@ internal static class TerminalGhostMovement
 		float travel = Mathf.Clamp(now - state.LastStep, 0f, 0.5f) * Plugin.GhostMovementSpeed.Value * (state.Roam ? RoamSpeedFactor : 1f);
 		state.LastStep = now;
 		state.NextStep = now + 0.5f;
-		Vector3 next = leader.Position;
+		// First step starts on the sampled path origin, not the (possibly off-mesh) body.
+		Vector3 next = state.FromOrigin ? state.Corners[0] : leader.Position;
 		int corner = state.Corner;
 		for (int steps = 0; steps < MaxCorners && corner < state.Count && travel > 0f; steps++)
 		{
@@ -223,15 +225,17 @@ internal static class TerminalGhostMovement
 			var record = squad.Members[i];
 			BotOwner bot = record.Bot;
 			if (!bot || bot.IsDead || !record.Dormant) continue;
-			string reason = Place(bot, next + record.GhostOffset, out Vector3 placed, out bool sampleMiss);
+			bool isLeader = record == state.Leader;
+			string reason = Place(bot, next + (isLeader ? Vector3.zero : record.GhostOffset), isLeader ? PlaceMode.Path : PlaceMode.Offset, out Vector3 placed, out bool sampleMiss);
 			// zzap 10/28: every [GhostMove] give-back was NavMesh.Raycast — a follower's
 			// 6m offset point sits behind a wall/edge the leader's path never touches.
 			// Collapse that follower onto the leader's own path point instead of waking.
-			if (reason != null && record != state.Leader && record.GhostOffset.sqrMagnitude > 0.01f)
+			if (reason != null && !isLeader)
 			{
 				record.GhostOffset = Vector3.zero;
-				reason = Place(bot, next, out placed, out sampleMiss);
+				reason = Place(bot, next, PlaceMode.Collapse, out placed, out sampleMiss);
 			}
+			if (reason != null) reason += isLeader ? " (leader)" : " (follower)";
 			if (reason != null)
 			{
 				if (sampleMiss) { if (++state.SampleFailures >= 5) GiveBack(squad, reason); }
@@ -258,11 +262,19 @@ internal static class TerminalGhostMovement
 			record.Body.Enforce();
 		}
 		state.Corner = corner;
+		state.FromOrigin = false;
 		if (corner >= state.Count) Stop(squad);
 	}
 
+	// Path: the leader's point on the CalculatePath result. Steps stop at corners, so the
+	// segment is part of an already validated path; NavMesh.Raycast along a path that hugs
+	// a mesh edge reports a hit (10/28 3rd raid: all 4 roams died on the first step).
+	// Offset: a follower's formation point, fully checked. Collapse: a follower moved onto
+	// the leader's path point after its offset failed; hidden, so only mesh + height.
+	private enum PlaceMode { Path, Offset, Collapse }
+
 	// Returns null when the member may be moved to `placed`, else the give-back reason.
-	private static string Place(BotOwner bot, Vector3 desired, out Vector3 placed, out bool sampleMiss)
+	private static string Place(BotOwner bot, Vector3 desired, PlaceMode mode, out Vector3 placed, out bool sampleMiss)
 	{
 		placed = default;
 		sampleMiss = false;
@@ -272,10 +284,18 @@ internal static class TerminalGhostMovement
 			return "five sample failures";
 		}
 		if (Mathf.Abs(hit.position.y - desired.y) > 1.5f) return $"height delta={Mathf.Abs(hit.position.y - desired.y):F2}m";
-		// The body stands slightly above/off the mesh; NavMesh.Raycast from an off-mesh
-		// origin reports a hit at once. Start from the member's own mesh point.
-		Vector3 from = NavMesh.SamplePosition(bot.Position, out NavMeshHit origin, 1.5f, NavMesh.AllAreas) ? origin.position : bot.Position;
-		if (NavMesh.Raycast(from, hit.position, out _, NavMesh.AllAreas)) return "NavMesh.Raycast";
+		if (mode == PlaceMode.Collapse)
+		{
+			placed = hit.position;
+			return null;
+		}
+		if (mode == PlaceMode.Offset)
+		{
+			// The body stands slightly above/off the mesh; NavMesh.Raycast from an off-mesh
+			// origin reports a hit at once. Start from the member's own mesh point.
+			Vector3 from = NavMesh.SamplePosition(bot.Position, out NavMeshHit origin, 3f, NavMesh.AllAreas) ? origin.position : bot.Position;
+			if (NavMesh.Raycast(from, hit.position, out _, NavMesh.AllAreas)) return "NavMesh.Raycast";
+		}
 		// Already one metre above BOTH endpoints; keep the obstruction guard.
 		if (Physics.Linecast(bot.Position + Vector3.up, hit.position + Vector3.up, out RaycastHit obstacle,
 			LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore))
