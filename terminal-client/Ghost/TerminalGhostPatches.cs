@@ -165,7 +165,7 @@ internal static class TerminalGhostPatches
 			// Activation may still be running; after 30s SAIN is not managing this bot
 			// (10/28 15시: the same 4 squads stayed "sain"-blocked all raid), so only
 			// the native human-combat checks in SleepBlock apply.
-			if (component == null) return Time.time - record.CreatedAt >= 30f;
+			if (component == null) return UnityEngine.Time.time - record.CreatedAt >= 30f;
 			record.SainController = _controller(component);
 		}
 		// SAIN ActiveHumanEnemy means KnownEnemies contains a human, including
