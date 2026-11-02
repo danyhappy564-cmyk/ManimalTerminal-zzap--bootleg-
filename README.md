@@ -23,14 +23,14 @@
 
 ## 배포
 
-- 최신: [zzap v1 릴리즈 노트](release-notes/v1.md) — 원작 0.2.20 위에 덮어쓰는 빌드, 디스코드·아카라이브 배포
+- 최신: [zzap v2 릴리즈 노트](release-notes/v2.md) — 다른 맵을 끝낸 뒤 메뉴 메모리 누수 수정(원작 0.2.20 위에 덮어쓰는 빌드) · 이전: [zzap v1](release-notes/v1.md)
 - 유령 모드 코드는 [ORBIT](https://github.com/Chazut/ORBIT) 모드를 참고했습니다. manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올리고 싶습니다. 후원: [manimal1920](https://ko-fi.com/manimal1920) · [chazut](https://ko-fi.com/chazut)
 
 ## 변경 이력
 
-- 2026-10-28 22:17 — zzap v1: 유령 모드가 기본으로 켜집니다(검증 완료, 실험 표기 삭제). 예전 테스트 빌드 설정에 저장된 '꺼짐'도 한 번만 켜고, 그 뒤 F12에서 끈 선택은 유지합니다. 릴리즈 이름에서 커밋 번호를 빼고 zzap v1로 정했습니다(압축 Manimal-Terminal-0.2.20-zzap-v1.zip, 태그 zzap-v1, 빌드 확인, 인게임 미검증).
+- 2026-11-02 20:25 — zzap v2 릴리즈 준비: GitHub 릴리즈 zzap-v1 이후 커밋 5개(코드 변경은 위 날씨 정리 1개, 나머지는 노트·README·ORBIT 라이선스 표기)를 노트 4종(release-notes/v2*)으로 정리. 압축 Manimal-Terminal-0.2.20-zzap-v2.zip은 v1과 같은 구성에 클라이언트 DLL만 새로 빌드한 것, 안내문 한·영에 v2 줄 추가. 태그 zzap-v2.
 
-전체 변경 이력 30개는 [`changelog/`](changelog/) 폴더에 10개씩 나눠 있습니다 (번호가 클수록 최신, 지금 마지막 파일: [`CHANGELOG-003.md`](changelog/CHANGELOG-003.md)).
+전체 변경 이력 32개는 [`changelog/`](changelog/) 폴더에 10개씩 나눠 있습니다 (번호가 클수록 최신, 지금 마지막 파일: [`CHANGELOG-004.md`](changelog/CHANGELOG-004.md)).
 
 ## 소개
 
