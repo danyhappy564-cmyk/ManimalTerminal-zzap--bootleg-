@@ -23,6 +23,8 @@ internal static class TerminalRaidCleanup
 		private static Exception Finalizer(Exception __exception, bool __state)
 		{
 			if (__state && !TerminalGate.RaidEnded) ReleaseAfterRaid();
+			// The weather node hook records every map's controller; other maps never reach ReleaseAfterRaid.
+			else if (!__state) Release("weather lifecycle", TerminalWeatherLifecycle.ResetForRaid);
 			return __exception;
 		}
 	}
