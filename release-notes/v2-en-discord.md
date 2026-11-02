@@ -7,7 +7,7 @@
 - The ORBIT license text is included in the zip
 
 ■ Install
-- Requires the original Terminal 0.2.20
+- Install the original Terminal 0.2.20 first (this zip has no map): <https://pub-38fba86cac60421ebd03a218d2535c13.r2.dev/Manimal-Terminal-SPT-4.1-0.2.20.zip>
 - Extract Manimal-Terminal-0.2.20-zzap-v2.zip into your SPT folder and overwrite (settings kept; from v1 only one file changes)
 
 ■ Notes

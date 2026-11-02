@@ -7,7 +7,7 @@
 - ORBIT 라이선스 원문을 압축에 포함
 
 ■ 설치
-- 원작 터미널 0.2.20이 깔려 있어야 함
+- 원본 터미널 0.2.20을 먼저 받아 설치해야 작동 (이 압축엔 맵 없음): <https://pub-38fba86cac60421ebd03a218d2535c13.r2.dev/Manimal-Terminal-SPT-4.1-0.2.20.zip>
 - Manimal-Terminal-0.2.20-zzap-v2.zip 풀어서 SPT 폴더에 덮어쓰기 (설정 유지, v1에서는 파일 하나만 바뀜)
 
 ■ 주의

@@ -23,6 +23,8 @@
 
 ## 배포
 
+- **설치 전에 꼭: 원본 Manimal Terminal 0.2.20을 먼저 받아 설치한 뒤 이 압축을 덮어써야 작동합니다**(이 압축엔 맵 번들이 없음). 원본: https://pub-38fba86cac60421ebd03a218d2535c13.r2.dev/Manimal-Terminal-SPT-4.1-0.2.20.zip
+  (Install the original Manimal Terminal 0.2.20 first, then extract this build over it - it has no map bundles.)
 - 최신: [zzap v2 릴리즈 노트](release-notes/v2.md) — 다른 맵을 끝낸 뒤 메뉴 메모리 누수 수정(원작 0.2.20 위에 덮어쓰는 빌드) · 이전: [zzap v1](release-notes/v1.md)
 - 유령 모드 코드는 [ORBIT](https://github.com/Chazut/ORBIT) 모드를 참고했습니다. manimal1920님과 chazut님에게 찬사를 보내며, 그들에게 공을 올리고 싶습니다. 후원: [manimal1920](https://ko-fi.com/manimal1920) · [chazut](https://ko-fi.com/chazut)
 

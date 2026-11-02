@@ -27,7 +27,9 @@ v1에서 올라오면 바뀌는 파일은 하나뿐입니다. 한글화, 렉 감
 
 ■ 설치
 
-원작 Manimal Terminal 0.2.20이 깔려 있어야 합니다. v1이나 예전 zzap 테스트 빌드 위에도 그대로 덮어쓰면 됩니다.
+원본 Manimal Terminal 0.2.20을 먼저 받아 설치해야 작동합니다(이 압축엔 맵이 없습니다).
+원본 받는 곳: https://pub-38fba86cac60421ebd03a218d2535c13.r2.dev/Manimal-Terminal-SPT-4.1-0.2.20.zip
+v1이나 예전 zzap 테스트 빌드 위에도 그대로 덮어쓰면 됩니다.
 1. 게임과 서버를 끕니다.
 2. 혹시 몰라 BepInEx\plugins\ManimalTerminal, SPT_Runtime\user\mods\ManimalTerminal 두 폴더를 백업합니다.
 3. Manimal-Terminal-0.2.20-zzap-v2.zip 풀어서 SPT 폴더에 덮어쓰기. 설정은 그대로 유지됩니다.
